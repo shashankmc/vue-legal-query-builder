@@ -130,6 +130,10 @@ A structured, step-by-step workflow organized into "goals" and "steps". Users ar
 - Complex searches with multiple phases
 - Users who benefit from structured guidance
 
+The structure can be written by hand, as below, or taken from one of the
+[built-in templates](#built-in-templates) — which is what guided mode falls back
+to when no structure is passed.
+
 **Example:**
 ```vue
 <template>
@@ -216,6 +220,47 @@ const guidedStructure = {
 </script>
 ```
 
+## Built-in templates
+
+Guided mode does not need a hand-written structure. The package ships a set of
+guided structures, and guided mode falls back to the default one when neither
+`guidedStructure` nor `guidedTemplate` is given:
+
+```vue
+<!-- renders the default template -->
+<LegalDocsForm type="guided" @submit="handleSubmit" />
+
+<!-- or name one explicitly -->
+<LegalDocsForm type="guided" guidedTemplate="caselaw-search" @submit="handleSubmit" />
+```
+
+| Id | Name | Contents |
+|----|------|----------|
+| `caselaw-search` | Case law search | Similarity, authority and traditional keyword search over case law |
+
+A host that wants to let its own users pick can list the templates:
+
+```ts
+import { guidedTemplates, DEFAULT_GUIDED_TEMPLATE_ID } from 'vue-legal-query-builder'
+
+guidedTemplates.map((template) => ({
+  id: template.id,          // 'caselaw-search'
+  name: template.name,      // 'Case law search'
+  description: template.description,
+  goals: template.structure.goals.length,
+}))
+```
+
+Also exported:
+
+| Export | Description |
+|--------|-------------|
+| `guidedTemplates` | Every template the package ships, as `GuidedTemplate[]` |
+| `DEFAULT_GUIDED_TEMPLATE_ID` | Id used when guided mode gets neither a structure nor a template |
+| `getGuidedTemplate(id)` | One template by id, or `undefined` |
+| `resolveGuidedStructure(structure?, templateId?)` | The structure the form would render: explicit structure, then template, then default |
+| `caselawSearch` | The `caselaw-search` structure on its own, to start a variation from |
+
 ## Props
 
 | Prop | Type | Default | Description |
@@ -223,7 +268,8 @@ const guidedStructure = {
 | `type` | 'free' \| 'guided' | 'free' | Form type (FreeForm or GuidedForm) |
 | `title` | string | undefined | Form title (optional) |
 | `subtitle` | string | undefined | Form subtitle (optional) |
-| `guidedStructure` | GuidedStructure | undefined | Required when `type="guided"` |
+| `guidedStructure` | GuidedStructure | undefined | Structure to render in guided mode. Takes precedence over `guidedTemplate` |
+| `guidedTemplate` | GuidedTemplateId | undefined | Id of a [built-in template](#built-in-templates), used when no `guidedStructure` is given |
 
 ## Events
 

@@ -56,6 +56,17 @@ export interface GuidedStructure {
   goals: Goal[]
 }
 
+/** Ids of the guided structures shipped with this package. */
+export type GuidedTemplateId = 'caselaw-search'
+
+/** A guided structure the package ships, described well enough for a host to list it in a picker. */
+export interface GuidedTemplate {
+  id: GuidedTemplateId
+  name: string
+  description: string
+  structure: GuidedStructure
+}
+
 /** Discriminated union so a host app knows which client method to call with `params`. */
 export type LegalDocsQuery =
   | { dataset: 'RS'; params: RechtspraakQueryParameters }
@@ -65,7 +76,15 @@ export interface LegalDocsFormProps {
   title?: string
   subtitle?: string
   type?: FormType
+  /** Guided structure to render. Takes precedence over `guidedTemplate`. */
   guidedStructure?: GuidedStructure
+  /**
+   * Id of one of the structures this package ships (see `guidedTemplates`),
+   * used when no `guidedStructure` is given. Guided mode falls back to
+   * `DEFAULT_GUIDED_TEMPLATE_ID` when neither is set, so it always has
+   * something to show.
+   */
+  guidedTemplate?: GuidedTemplateId | string
   onSubmit?: (data: LegalDocsQuery) => Promise<any>
   /**
    * Searches legislation by name, for the law selector.

@@ -4,8 +4,18 @@ import type { App, Plugin } from "vue";
 import LegalDocsForm from "./components/LegalDocsForm.vue";
 export { LegalDocsForm };
 export type { SearchLaws } from "./components/hostCallbacks";
-export type { LegalDocsFormProps, Dataset, LegalDocsQuery, Goal, GoalFixedParameters, GuidedStructure, Step, Block } from "./components/types";
+export type { LegalDocsFormProps, Dataset, LegalDocsQuery, Goal, GoalFixedParameters, GuidedStructure, GuidedTemplate, GuidedTemplateId, Step, Block } from "./components/types";
 export { FormType, BlockType } from "./components/types";
+
+// The guided structures this package ships, so a host can list them in a picker
+// instead of authoring a structure of its own.
+export {
+  guidedTemplates,
+  getGuidedTemplate,
+  resolveGuidedStructure,
+  DEFAULT_GUIDED_TEMPLATE_ID,
+  caselawSearch,
+} from "./templates";
 
 // The API's data contract, re-exported so a consumer needs one import.
 //

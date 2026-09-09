@@ -11,7 +11,7 @@
         />
         <GuidedForm 
             v-else-if="props.type === FormType.GUIDED"
-            :guidedStructure="props.guidedStructure"
+            :guidedStructure="guidedStructure"
             :formData="formData"
             :loading="loading"
             @submit="handleSubmit"
@@ -42,7 +42,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { DocType } from 'legal-docs-types'
 import type {
     RechtspraakQueryParameters,
@@ -55,6 +55,7 @@ import type {
 import type { LegalDocsFormProps, Dataset, LegalDocsQuery, GoalFixedParameters } from './types'
 import { FormType } from './types'
 import { provideHostCallbacks } from './hostCallbacks'
+import { resolveGuidedStructure } from '../templates'
 import FreeForm from './forms/FreeForm.vue'
 import GuidedForm from './forms/GuidedForm.vue'
 
@@ -65,6 +66,10 @@ const props = withDefaults(defineProps<LegalDocsFormProps>(), {
 // Blocks that look things up while the form is being filled in ask the host to
 // do it, so no part of this package ever calls the API or holds a credential.
 provideHostCallbacks({ searchLaws: (query) => props.onSearchLaws?.(query) ?? Promise.resolve([]) })
+
+// An explicit structure wins, then a named template, then the default template —
+// so asking for guided mode alone is enough to get a usable form.
+const guidedStructure = computed(() => resolveGuidedStructure(props.guidedStructure, props.guidedTemplate))
 
 const emit = defineEmits<{
     submit: [data: LegalDocsQuery]

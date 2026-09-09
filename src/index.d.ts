@@ -65,6 +65,36 @@ export interface GuidedStructure {
   goals: Goal[];
 }
 
+/** Ids of the guided structures shipped with this package. */
+export type GuidedTemplateId = "caselaw-search";
+
+/** A guided structure the package ships, described well enough for a host to list it in a picker. */
+export interface GuidedTemplate {
+  id: GuidedTemplateId;
+  name: string;
+  description: string;
+  structure: GuidedStructure;
+}
+
+/** The guided structures this package ships. */
+export declare const guidedTemplates: GuidedTemplate[];
+
+/** Used when guided mode is asked for without a structure or a template id. */
+export declare const DEFAULT_GUIDED_TEMPLATE_ID: GuidedTemplateId;
+
+export declare function getGuidedTemplate(id: GuidedTemplateId | string): GuidedTemplate | undefined;
+
+/**
+ * Picks the structure a guided form should render: an explicit structure wins,
+ * then the named template, and failing both the default template.
+ */
+export declare function resolveGuidedStructure(
+  structure?: GuidedStructure,
+  templateId?: GuidedTemplateId | string,
+): GuidedStructure;
+
+export declare const caselawSearch: GuidedStructure;
+
 export type LegalDocsQuery =
   | { dataset: "RS"; params: RechtspraakQueryParameters }
   | { dataset: "ECHR"; params: EchrQueryParameters };
@@ -73,7 +103,14 @@ export interface LegalDocsFormProps {
   title?: string;
   subtitle?: string;
   type?: FormType;
+  /** Guided structure to render. Takes precedence over `guidedTemplate`. */
   guidedStructure?: GuidedStructure;
+  /**
+   * Id of one of the structures this package ships (see `guidedTemplates`),
+   * used when no `guidedStructure` is given. Guided mode falls back to
+   * `DEFAULT_GUIDED_TEMPLATE_ID` when neither is set.
+   */
+  guidedTemplate?: GuidedTemplateId | string;
   onSubmit?: (data: LegalDocsQuery) => Promise<any>;
   /**
    * Searches legislation by name, for the law selector. The form never calls
