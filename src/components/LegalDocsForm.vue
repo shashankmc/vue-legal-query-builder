@@ -42,7 +42,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, provide } from 'vue'
 import { DocType } from 'legal-docs-types'
 import type {
     RechtspraakQueryParameters,
@@ -52,8 +52,9 @@ import type {
     EchrDocumentType,
     AttributesToFetch,
 } from 'legal-docs-types'
-import type { LegalDocsFormProps, Dataset, LegalDocsQuery, GoalFixedParameters } from './types'
+import type { LegalDocsFormProps, Dataset, LegalDocsQuery, GoalFixedParameters, DatasetDescriptor } from './types'
 import { FormType } from './types'
+import { defaultDataset, isBuiltInDataset, resolveDatasets } from './datasets'
 import { provideHostCallbacks } from './hostCallbacks'
 import { resolveGuidedStructure } from '../templates'
 import FreeForm from './forms/FreeForm.vue'
@@ -67,9 +68,15 @@ const props = withDefaults(defineProps<LegalDocsFormProps>(), {
 // do it, so no part of this package ever calls the API or holds a credential.
 provideHostCallbacks({ searchLaws: (query) => props.onSearchLaws?.(query) ?? Promise.resolve([]) })
 
+// Datasets the picker offers. A host supplies its own list to plug in a corpus
+// this package does not know about; otherwise the built-ins apply. See
+// docs/dataset-agnostic-seam.md.
+const datasets = computed<DatasetDescriptor[]>(() => resolveDatasets(props.datasets))
+
 // An explicit structure wins, then a named template, then the default template —
 // so asking for guided mode alone is enough to get a usable form.
 const guidedStructure = computed(() => resolveGuidedStructure(props.guidedStructure, props.guidedTemplate))
+provide('legal-docs-form-datasets', datasets)
 
 const emit = defineEmits<{
     submit: [data: LegalDocsQuery]
@@ -79,7 +86,7 @@ const emit = defineEmits<{
 
 // Form data
 const formData = reactive({
-    selectedDataset: 'RS' as Dataset,
+    selectedDataset: defaultDataset(datasets.value) as Dataset,
     keywords: [] as string[],
     eclis: '',
     articles: '',
@@ -272,6 +279,16 @@ function parseParameters(): LegalDocsQuery {
     const passthrough: Record<string, string> = {}
     if (formData.facts) passthrough.facts = formData.facts
     if (formData.reasoning) passthrough.reasoning = formData.reasoning
+
+    // A host-registered dataset gets its collected fields back as a plain
+    // object under its own id; the host's onSubmit translates them. See
+    // docs/dataset-agnostic-seam.md.
+    if (!isBuiltInDataset(formData.selectedDataset)) {
+        return {
+            dataset: formData.selectedDataset,
+            params: { ...parseRechtspraakParams(), ...passthrough, ...formData.guidedFixedParameters },
+        }
+    }
 
     if (formData.selectedDataset === 'ECHR') {
         return {
