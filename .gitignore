@@ -27,3 +27,4 @@ dist-ssr
 .env
 # Test scratch
 coverage/
+dist-demo/

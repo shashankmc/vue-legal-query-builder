@@ -8,6 +8,28 @@ A Vue 3 component library for building legal document search queries. Provides t
 npm install vue-legal-query-builder
 ```
 
+## Demo / validation
+
+A self-contained demo app exercises every feature, old and new, with a stubbed
+in-memory backend so it runs with no token and no network:
+
+```bash
+npm install
+npm run demo        # dev server at http://localhost:5173
+npm run build:demo  # static build to dist-demo/
+```
+
+The page lets you switch:
+
+- **Mode** — free form and guided form;
+- **Guided structure** — a realistic search, every block type, or a
+  BlueLab-style structure with custom fields;
+- **Datasets** — the built-ins, or a host-supplied list (the new seam);
+- **onSearchLaws / onSubmit** — on or off, to see behaviour without them.
+
+Every `@submit`, `@success` and `@error` is shown on the page and in the
+console, so the host contract is visible while you click. See `demo/`.
+
 ## Quick Start
 
 ```vue
