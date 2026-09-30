@@ -97,12 +97,34 @@ export declare const caselawSearch: GuidedStructure;
 
 export type LegalDocsQuery =
   | { dataset: "RS"; params: RechtspraakQueryParameters }
-  | { dataset: "ECHR"; params: EchrQueryParameters };
+  | { dataset: "ECHR"; params: EchrQueryParameters }
+  | { dataset: string; params: Record<string, unknown> };
+
+/**
+ * A dataset a host offers in the picker. The built-ins are RS, ECHR and CJEU;
+ * a host can pass its own list to plug in a corpus this package does not know.
+ */
+export interface DatasetDescriptor {
+  /** Id returned in @submit, e.g. "RS", "ECHR", "bluelab". */
+  id: string;
+  /** Label shown in a DatasetSelector block. */
+  label: string;
+  /** Shown but not selectable. */
+  disabled?: boolean;
+}
+
+/** The datasets offered when a host passes no `datasets` prop. */
+export declare const BUILT_IN_DATASETS: DatasetDescriptor[];
 
 export interface LegalDocsFormProps {
   title?: string;
   subtitle?: string;
   type?: FormType;
+  /**
+   * Datasets the picker offers. Omit to keep the built-ins (RS, ECHR and a
+   * disabled CJEU). Pass your own to add a corpus this package does not know.
+   */
+  datasets?: DatasetDescriptor[];
   /** Guided structure to render. Takes precedence over `guidedTemplate`. */
   guidedStructure?: GuidedStructure;
   /**
