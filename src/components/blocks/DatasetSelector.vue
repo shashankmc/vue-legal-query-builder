@@ -2,26 +2,28 @@
     <div class="form-group">
         <label>Dataset</label>
         <div class="button-group">
-            <button type="button" @click="selectedDataset = 'RS'"
-                :class="{ 'active': selectedDataset === 'RS' }">
-                Rechtspraak
-            </button>
-            <button type="button" @click="selectedDataset = 'ECHR'"
-                :class="{ 'active': selectedDataset === 'ECHR' }">
-                ECHR
-            </button>
-            <button type="button" disabled
-                :class="{ 'active': selectedDataset === 'CJEU' }">
-                CJEU
+            <button v-for="dataset in datasets" :key="dataset.id" type="button" :disabled="dataset.disabled"
+                @click="selectedDataset = dataset.id" :class="{ 'active': selectedDataset === dataset.id }">
+                {{ dataset.label }}
             </button>
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import type { Dataset } from '../types'
+import { computed, inject, type InjectionKey, type Ref } from 'vue'
+import type { Dataset, DatasetDescriptor } from '../types'
+import { BUILT_IN_DATASETS } from '../types'
 
 const selectedDataset = defineModel<Dataset>('selectedDataset')
+
+// The form provides the dataset list it was configured with; a host that
+// passed none gets the built-ins. See docs/dataset-agnostic-seam.md.
+const datasetsInjected = inject<Ref<DatasetDescriptor[]>>(
+    'legal-docs-form-datasets' as unknown as InjectionKey<Ref<DatasetDescriptor[]>>,
+    computed(() => BUILT_IN_DATASETS),
+)
+const datasets = computed(() => datasetsInjected.value)
 </script>
 
 <style>

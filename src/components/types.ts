@@ -26,6 +26,28 @@ export enum BlockType {
 /** Dataset a query targets. CJEU has no backing endpoint in the API yet and stays disabled in the UI. */
 export type Dataset = 'RS' | 'ECHR' | 'CJEU'
 
+/**
+ * A dataset a host offers in the picker. The built-ins are `RS`, `ECHR` and
+ * `CJEU`; a host can pass its own list (optionally including the built-ins) to
+ * plug in a corpus this package knows nothing about. See
+ * docs/dataset-agnostic-seam.md.
+ */
+export interface DatasetDescriptor {
+    /** Id returned in @submit, e.g. "RS", "ECHR", "bluelab". */
+    id: string
+    /** Label shown in a DatasetSelector block. */
+    label: string
+    /** Shown but not selectable. */
+    disabled?: boolean
+}
+
+/** The datasets offered when a host passes no `datasets` prop. */
+export const BUILT_IN_DATASETS: DatasetDescriptor[] = [
+    { id: 'RS', label: 'Rechtspraak' },
+    { id: 'ECHR', label: 'ECHR' },
+    { id: 'CJEU', label: 'CJEU', disabled: true },
+]
+
 export interface Block {
   type: BlockType
   title: string
@@ -67,15 +89,31 @@ export interface GuidedTemplate {
   structure: GuidedStructure
 }
 
-/** Discriminated union so a host app knows which client method to call with `params`. */
+/**
+ * Discriminated union so a host app knows which client method to call with
+ * `params`.
+ *
+ * The first two members are the built-in datasets and keep their typed
+ * parameters. The third is the escape hatch: a host that registers a dataset
+ * of its own (see `datasets` on LegalDocsFormProps) gets its collected fields
+ * back as a plain object under its own dataset id, and translates them itself.
+ */
 export type LegalDocsQuery =
   | { dataset: 'RS'; params: RechtspraakQueryParameters }
   | { dataset: 'ECHR'; params: EchrQueryParameters }
+  | { dataset: string; params: Record<string, unknown> }
 
 export interface LegalDocsFormProps {
   title?: string
   subtitle?: string
   type?: FormType
+  /**
+   * Datasets the picker offers. Omit to keep the built-ins (RS, ECHR and a
+   * disabled CJEU). Pass your own — optionally spreading `BUILT_IN_DATASETS`
+   * into it — to add a corpus this package knows nothing about. See
+   * docs/dataset-agnostic-seam.md.
+   */
+  datasets?: DatasetDescriptor[]
   /** Guided structure to render. Takes precedence over `guidedTemplate`. */
   guidedStructure?: GuidedStructure
   /**

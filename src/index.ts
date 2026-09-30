@@ -4,8 +4,8 @@ import type { App, Plugin } from "vue";
 import LegalDocsForm from "./components/LegalDocsForm.vue";
 export { LegalDocsForm };
 export type { SearchLaws } from "./components/hostCallbacks";
-export type { LegalDocsFormProps, Dataset, LegalDocsQuery, Goal, GoalFixedParameters, GuidedStructure, GuidedTemplate, GuidedTemplateId, Step, Block } from "./components/types";
-export { FormType, BlockType } from "./components/types";
+export type { LegalDocsFormProps, Dataset, DatasetDescriptor, LegalDocsQuery, Goal, GoalFixedParameters, GuidedStructure, GuidedTemplate, GuidedTemplateId, Step, Block } from "./components/types";
+export { BUILT_IN_DATASETS, FormType, BlockType } from "./components/types";
 
 // The guided structures this package ships, so a host can list them in a picker
 // instead of authoring a structure of its own.
