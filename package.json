@@ -18,7 +18,8 @@
   ],
   "scripts": {
     "build": "vite build && node scripts/copy-types.mjs",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "test": "node --test test/*.test.mjs"
   },
   "keywords": [
     "vue",
