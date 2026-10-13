@@ -49,6 +49,7 @@
   },
   "dependencies": {
     "legal-docs-types": "^1.0.0",
+    "legal-retrieval-types": "file:../legal-retrieval-types",
     "lucide-vue-next": "^1.0.0"
   },
   "peerDependencies": {

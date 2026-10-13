@@ -18,11 +18,12 @@ export default defineConfig({
       // import rather than being copied in here: the package's own .d.ts
       // files reference it, and a consumer comparing their DocType against a
       // second copy baked into this bundle should not have to wonder.
-      external: ['vue', 'legal-docs-types'],
+      external: ['vue', 'legal-docs-types', 'legal-retrieval-types'],
       output: {
         globals: {
           vue: 'Vue',
-          'legal-docs-types': 'LegalDocsTypes'
+          'legal-docs-types': 'LegalDocsTypes',
+          'legal-retrieval-types': 'LegalRetrievalTypes'
         }
       }
     }
