@@ -4,8 +4,13 @@ import type { App, Plugin } from "vue";
 import LegalDocsForm from "./components/LegalDocsForm.vue";
 export { LegalDocsForm };
 export type { SearchLaws } from "./components/hostCallbacks";
-export type { LegalDocsFormProps, Dataset, DatasetDescriptor, LegalDocsQuery, Goal, GoalFixedParameters, GuidedStructure, GuidedTemplate, GuidedTemplateId, Step, Block } from "./components/types";
+export type { LegalDocsFormProps, Dataset, DatasetDescriptor, FieldDescriptor, ResultViewRef, LegalDocsQuery, Goal, GoalFixedParameters, GuidedStructure, GuidedTemplate, GuidedTemplateId, Step, Block } from "./components/types";
 export { BUILT_IN_DATASETS, FormType, BlockType } from "./components/types";
+
+// The declarative dataset field schema: a generic, app-agnostic provisions
+// dataset plus the pure collect/validate helpers a host can reuse.
+export { provisionsDataset } from "./components/datasets";
+export { collectDatasetParams, validateDatasetFields, isFieldFilled, hasDeclaredFields } from "./components/datasetFields";
 
 // The guided structures this package ships, so a host can list them in a picker
 // instead of authoring a structure of its own.

@@ -8,6 +8,9 @@ import type {
   EchrFullTextDocument,
   BWBItem,
 } from "legal-docs-types";
+import type { DatasetDescriptor, FieldDescriptor, ResultViewRef } from "legal-retrieval-types";
+
+export type { DatasetDescriptor, FieldDescriptor, ResultViewRef };
 
 /** Searches legislation by name. Supplied by the host. */
 export declare type SearchLaws = (query: string) => Promise<BWBItem[]>;
@@ -103,18 +106,32 @@ export type LegalDocsQuery =
 /**
  * A dataset a host offers in the picker. The built-ins are RS, ECHR and CJEU;
  * a host can pass its own list to plug in a corpus this package does not know.
+ * A dataset may declare `fields` to collect its parameters generically.
  */
-export interface DatasetDescriptor {
-  /** Id returned in @submit, e.g. "RS", "ECHR", "bluelab". */
-  id: string;
-  /** Label shown in a DatasetSelector block. */
-  label: string;
-  /** Shown but not selectable. */
-  disabled?: boolean;
-}
 
 /** The datasets offered when a host passes no `datasets` prop. */
 export declare const BUILT_IN_DATASETS: DatasetDescriptor[];
+
+/** A generic, app-agnostic provisions dataset (BlueLab is one host that uses it). */
+export declare const provisionsDataset: DatasetDescriptor;
+
+/** The params a dataset's declared fields collected. */
+export declare function collectDatasetParams(
+  dataset: DatasetDescriptor,
+  values: Record<string, unknown>,
+): Record<string, unknown>;
+
+/** Whether every `required` field has a value. */
+export declare function validateDatasetFields(
+  dataset: DatasetDescriptor,
+  values: Record<string, unknown>,
+): boolean;
+
+/** Whether a collected value counts as filled. */
+export declare function isFieldFilled(value: unknown): boolean;
+
+/** Whether a dataset declares a field schema. */
+export declare function hasDeclaredFields(dataset: DatasetDescriptor | undefined): boolean;
 
 export interface LegalDocsFormProps {
   title?: string;

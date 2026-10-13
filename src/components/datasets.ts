@@ -26,3 +26,39 @@ export function defaultDataset(datasets: DatasetDescriptor[]): string {
 export function isBuiltInDataset(id: string): boolean {
   return id === 'RS' || id === 'ECHR'
 }
+
+/**
+ * A generic, app-agnostic provisions dataset. BlueLab is one host that uses it;
+ * the fields describe a provision search, not a BlueLab-specific shape. Hosts
+ * can spread it into their own `datasets` list or use it as a template.
+ */
+export const provisionsDataset: DatasetDescriptor = {
+  id: 'provisions',
+  label: 'Provisions',
+  kind: 'provisions',
+  paramsMapper: 'provisions',
+  retrieval: { defaultMethod: 'bm25' },
+  resultView: { kind: 'ranked-list' },
+  fields: [
+    {
+      key: 'facts',
+      block: 'FactsInput',
+      label: 'Facts',
+      description: 'Describe the fact pattern to match provisions against.',
+      required: true,
+      placeholder: 'Describe the facts…',
+    },
+    {
+      key: 'keywords',
+      block: 'KeywordsInput',
+      label: 'Keywords',
+      description: 'Optional keywords to narrow the provision search.',
+    },
+    {
+      key: 'selectedLaws',
+      block: 'SelectedLaws',
+      label: 'Provisions',
+      description: 'Restrict the search to specific provisions.',
+    },
+  ],
+}

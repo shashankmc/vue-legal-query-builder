@@ -2,8 +2,17 @@
     <div class="legal-docs-form">
         <h2 v-if="props.title" class="title">{{ props.title }}</h2>
         <p v-if="props.subtitle" class="subtitle">{{ props.subtitle }}</p>
+        <DatasetFieldsForm
+            v-if="hasDeclaredFields(activeDataset)"
+            :dataset="activeDataset"
+            :formData="formData"
+            :values="customParams"
+            :loading="loading"
+            @submit="handleSubmit"
+            @handleReset="handleReset"
+        />
         <FreeForm 
-            v-if="props.type === FormType.FREE"
+            v-else-if="props.type === FormType.FREE"
             :formData="formData"
             :loading="loading"
             @submit="handleSubmit"
@@ -55,10 +64,12 @@ import type {
 import type { LegalDocsFormProps, Dataset, LegalDocsQuery, GoalFixedParameters, DatasetDescriptor } from './types'
 import { FormType } from './types'
 import { defaultDataset, isBuiltInDataset, resolveDatasets } from './datasets'
+import { collectDatasetParams, hasDeclaredFields } from './datasetFields'
 import { provideHostCallbacks } from './hostCallbacks'
 import { resolveGuidedStructure } from '../templates'
 import FreeForm from './forms/FreeForm.vue'
 import GuidedForm from './forms/GuidedForm.vue'
+import DatasetFieldsForm from './DatasetFieldsForm.vue'
 
 const props = withDefaults(defineProps<LegalDocsFormProps>(), {
     type: FormType.FREE
@@ -146,6 +157,14 @@ const formData = reactive({
     dateDecisionStart: '',
     dateDecisionEnd: ''
 })
+
+// Values collected by a host dataset's declarative field schema. Only used when
+// the selected dataset declares `fields`; built-in datasets keep their own path.
+const customParams = reactive<Record<string, unknown>>({})
+
+const activeDataset = computed<DatasetDescriptor | undefined>(() =>
+    datasets.value.find((d) => d.id === formData.selectedDataset)
+)
 
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -274,6 +293,16 @@ function parseEchrParams(): EchrQueryParameters {
 }
 
 function parseParameters(): LegalDocsQuery {
+    // A dataset with a declarative field schema collects only its declared
+    // fields — no Rechtspraak bleed-through. See docs/dataset-agnostic-seam.md.
+    const dataset = activeDataset.value
+    if (dataset && hasDeclaredFields(dataset)) {
+        return {
+            dataset: formData.selectedDataset,
+            params: { ...collectDatasetParams(dataset, customParams), ...formData.guidedFixedParameters },
+        }
+    }
+
     // facts/reasoning aren't declared on either query type in legal-docs-types, but are merged
     // in anyway as a best-effort passthrough in case the API still accepts them.
     const passthrough: Record<string, string> = {}
@@ -345,7 +374,8 @@ const handleSubmit = async (isValid: boolean) => {
 }
 
 const handleReset = () => {
-    formData.selectedDataset = 'RS'
+    formData.selectedDataset = defaultDataset(datasets.value) as Dataset
+    for (const key of Object.keys(customParams)) delete customParams[key]
     formData.keywords = []
     formData.eclis = ''
     formData.articles = ''
