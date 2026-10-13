@@ -1,4 +1,7 @@
 import type { RechtspraakQueryParameters, EchrQueryParameters, BWBItem } from 'legal-docs-types'
+import type { DatasetDescriptor } from 'legal-retrieval-types'
+
+export type { DatasetDescriptor, FieldDescriptor, ResultViewRef } from 'legal-retrieval-types'
 
 export enum FormType {
   FREE = 'free',
@@ -26,26 +29,11 @@ export enum BlockType {
 /** Dataset a query targets. CJEU has no backing endpoint in the API yet and stays disabled in the UI. */
 export type Dataset = 'RS' | 'ECHR' | 'CJEU'
 
-/**
- * A dataset a host offers in the picker. The built-ins are `RS`, `ECHR` and
- * `CJEU`; a host can pass its own list (optionally including the built-ins) to
- * plug in a corpus this package knows nothing about. See
- * docs/dataset-agnostic-seam.md.
- */
-export interface DatasetDescriptor {
-    /** Id returned in @submit, e.g. "RS", "ECHR", "bluelab". */
-    id: string
-    /** Label shown in a DatasetSelector block. */
-    label: string
-    /** Shown but not selectable. */
-    disabled?: boolean
-}
-
 /** The datasets offered when a host passes no `datasets` prop. */
 export const BUILT_IN_DATASETS: DatasetDescriptor[] = [
-    { id: 'RS', label: 'Rechtspraak' },
-    { id: 'ECHR', label: 'ECHR' },
-    { id: 'CJEU', label: 'CJEU', disabled: true },
+    { id: 'RS', label: 'Rechtspraak', kind: 'case-law' },
+    { id: 'ECHR', label: 'ECHR', kind: 'case-law' },
+    { id: 'CJEU', label: 'CJEU', kind: 'case-law', disabled: true },
 ]
 
 export interface Block {
