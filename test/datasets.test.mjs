@@ -68,3 +68,65 @@ test('BUILT_IN_DATASETS stay in the built-in set', () => {
     assert.equal(isBuiltInDataset(ds.id) || ds.id === 'CJEU', true, `${ds.id} should be built in`)
   }
 })
+
+// Declarative field schema: pure collection + validation.
+function loadDatasetFieldsModule() {
+  const source = readFileSync(join(srcDir, 'datasetFields.ts'), 'utf8')
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+  }).outputText
+  const url = 'data:text/javascript;base64,' + Buffer.from(compiled).toString('base64')
+  return import(url)
+}
+
+const { collectDatasetParams, validateDatasetFields, isFieldFilled, hasDeclaredFields } =
+  await loadDatasetFieldsModule()
+
+const provisions = {
+  id: 'provisions',
+  label: 'Provisions',
+  kind: 'provisions',
+  fields: [
+    { key: 'facts', block: 'FactsInput', label: 'Facts', required: true },
+    { key: 'keywords', block: 'KeywordsInput', label: 'Keywords' },
+    { key: 'internal', block: 'TextInput', label: 'Internal', includeInParams: false },
+  ],
+}
+
+test('collectDatasetParams keeps only declared, filled fields', () => {
+  const params = collectDatasetParams(provisions, {
+    facts: 'A dismissal',
+    keywords: [],
+    internal: 'hidden',
+    unrelated: 'ignored',
+  })
+  assert.deepEqual(params, { facts: 'A dismissal' })
+})
+
+test('collectDatasetParams omits includeInParams:false fields', () => {
+  const params = collectDatasetParams(provisions, { facts: 'x', internal: 'y' })
+  assert.equal('internal' in params, false)
+})
+
+test('validateDatasetFields checks required fields', () => {
+  assert.equal(validateDatasetFields(provisions, { facts: 'x' }), true)
+  assert.equal(validateDatasetFields(provisions, { facts: '' }), false)
+  assert.equal(validateDatasetFields(provisions, {}), false)
+})
+
+test('isFieldFilled treats empties as unfilled', () => {
+  assert.equal(isFieldFilled(''), false)
+  assert.equal(isFieldFilled('  '), false)
+  assert.equal(isFieldFilled([]), false)
+  assert.equal(isFieldFilled(null), false)
+  assert.equal(isFieldFilled(0), true)
+  assert.equal(isFieldFilled(false), false)
+  assert.equal(isFieldFilled(['a']), true)
+  assert.equal(isFieldFilled({ a: 'x' }), true)
+})
+
+test('hasDeclaredFields is false without fields', () => {
+  assert.equal(hasDeclaredFields(undefined), false)
+  assert.equal(hasDeclaredFields({ id: 'x', label: 'X' }), false)
+  assert.equal(hasDeclaredFields(provisions), true)
+})
