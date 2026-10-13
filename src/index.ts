@@ -3,6 +3,8 @@ import type { App, Plugin } from "vue";
 // Export components
 import LegalDocsForm from "./components/LegalDocsForm.vue";
 export { LegalDocsForm };
+import RankedList from "./components/RankedList.vue";
+export { RankedList };
 export type { SearchLaws } from "./components/hostCallbacks";
 export type { LegalDocsFormProps, Dataset, DatasetDescriptor, FieldDescriptor, ResultViewRef, LegalDocsQuery, Goal, GoalFixedParameters, GuidedStructure, GuidedTemplate, GuidedTemplateId, Step, Block } from "./components/types";
 export { BUILT_IN_DATASETS, FormType, BlockType } from "./components/types";

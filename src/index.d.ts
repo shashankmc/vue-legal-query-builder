@@ -160,6 +160,9 @@ export interface LegalDocsFormProps {
 
 export declare const LegalDocsForm: DefineComponent<LegalDocsFormProps, {}, any>;
 
+/** A simple ranked list for provisions-style results. */
+export declare const RankedList: DefineComponent<{ result: unknown }, {}, any>;
+
 
 export { DocType } from "legal-docs-types";
 

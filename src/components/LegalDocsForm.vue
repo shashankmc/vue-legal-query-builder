@@ -47,6 +47,17 @@
             <div class="spinner"></div>
             <p class="loader-text">Searching documents...</p>
         </div>
+
+        <!-- Results. A host can render its own view via the #results slot; the
+             built-in ranked list covers provisions-style datasets. -->
+        <section v-if="lastResult" class="results-section">
+            <slot name="results" :result="lastResult" :dataset="activeDataset" :result-view="activeDataset?.resultView">
+                <RankedList
+                    v-if="activeDataset?.resultView?.kind === 'ranked-list'"
+                    :result="lastResult"
+                />
+            </slot>
+        </section>
     </div>
 </template>
 
@@ -70,6 +81,7 @@ import { resolveGuidedStructure } from '../templates'
 import FreeForm from './forms/FreeForm.vue'
 import GuidedForm from './forms/GuidedForm.vue'
 import DatasetFieldsForm from './DatasetFieldsForm.vue'
+import RankedList from './RankedList.vue'
 
 const props = withDefaults(defineProps<LegalDocsFormProps>(), {
     type: FormType.FREE
@@ -170,6 +182,7 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const successMessage = ref<string | null>(null)
 const hasValidationWarning = ref(false)
+const lastResult = ref<unknown>(null)
 
 const parseList = (input: string): string[] | undefined => {
     const items = input.split(',').map(i => i.trim()).filter(i => i.length > 0)
@@ -363,6 +376,7 @@ const handleSubmit = async (isValid: boolean) => {
             }
 
             successMessage.value = `${docCount} document${docCount !== 1 ? 's' : ''} fetched`
+            lastResult.value = data
             emit('success', data)
         }
     } catch (err: any) {
@@ -435,6 +449,7 @@ const handleReset = () => {
 const clearMessages = () => {
     error.value = null
     successMessage.value = null
+    lastResult.value = null
 }
 </script>
 
