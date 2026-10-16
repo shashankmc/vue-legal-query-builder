@@ -34,6 +34,17 @@ export type {
 } from "./components/types";
 export { ProviderOperationError } from "legal-retrieval-types";
 
+// Backend-dependency helpers: what a provider needs configured, and the
+// scaffold an operator gets. No credential crosses this boundary — these
+// describe the requirement, never a value. See README "Credentials".
+export {
+  requiredDependencies,
+  unmetDependencies,
+  dependencyHint,
+  methodsWithDependencies,
+  buildDependencyScaffold,
+} from "legal-retrieval-types";
+
 export {
   useLegalSearchRuntime,
   useLegalSearchRuntimeContext,

@@ -106,9 +106,37 @@ test('the bundle exposes the runtime surface', { skip }, async () => {
     'collectParams',
     'defaultProviderFor',
     'LegalDocsForm',
+    'buildDependencyScaffold',
+    'requiredDependencies',
   ]) {
     assert.ok(name in mod, `expected the bundle to export ${name}`)
   }
+})
+
+test('a declared credential becomes an operator scaffold, never a value', { skip }, async () => {
+  const { buildDependencyScaffold, unmetDependencies } = await import(bundlePath)
+
+  const search = {
+    id: 'search',
+    label: 'Hybrid semantic + keyword search',
+    dependencies: [
+      {
+        id: 'ldh-key',
+        label: 'Legal Data Hunter API key',
+        kind: 'credential',
+        configKeys: ['LDH_KEY'],
+      },
+    ],
+  }
+
+  const scaffold = buildDependencyScaffold([search])
+  assert.match(scaffold, /Legal Data Hunter API key \[credential\]/)
+  assert.match(scaffold, /^LDH_KEY=$/m)
+
+  // Nothing here can carry a value: the method declares an unmet dependency
+  // until the host says otherwise.
+  assert.equal(unmetDependencies({ ...search, available: false }).length, 1)
+  assert.equal(unmetDependencies({ ...search, available: true }).length, 0)
 })
 
 test('resolves a manifest and routes a search through the adapter', { skip }, async () => {

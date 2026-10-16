@@ -405,6 +405,85 @@ const guidedStructure = {
 
 Each step in the GuidedForm stepper displays its title below the numbered indicator, providing users with a quick overview of what each step entails.
 
+## Credentials
+
+**This package never holds one.** There is no API-key prop, no key input, and
+nothing reads `import.meta.env` — a bundler inlines `VITE_*` at build time, so a
+key read that way would be compiled into the published bundle. The host's
+`adapter` is the only thing that talks to a provider, and it points at your
+server.
+
+What this package does do is **declare** that a provider needs a credential, so
+a host can render the field and an operator can be told what to set. A provider
+method carries a `DependencyDescriptor` with `kind: 'credential'`:
+
+```ts
+{
+  id: 'ldh',
+  label: 'Legal Data Hunter',
+  type: 'legal-data-hunter',
+  methods: [
+    {
+      id: 'search',
+      label: 'Hybrid semantic + keyword search',
+      dependencies: [
+        {
+          id: 'ldh-key',
+          label: 'Legal Data Hunter API key',
+          kind: 'credential',
+          configKeys: ['LDH_KEY'],
+        },
+      ],
+    },
+  ],
+}
+```
+
+Three helpers turn that declaration into something an operator can act on —
+`requiredDependencies`, `unmetDependencies` and `buildDependencyScaffold`, all
+re-exported here:
+
+```ts
+import { buildDependencyScaffold } from 'vue-legal-query-builder'
+
+// # Backend configuration required by retrieval methods.
+// # Fill in the values and give them to your service.
+//
+// # Method: Hybrid semantic + keyword search (search)
+// #   - Legal Data Hunter API key [credential]
+// LDH_KEY=
+```
+
+### Where the key actually lives
+
+In [legal-blocks](https://github.com/MaastrichtU-BISS/legal-blocks) the key is a
+**secret config field on the module**, and the pipeline machinery keeps it out
+of everything readable:
+
+```text
+  composer form                          the user types the key here, once
+       |  export
+       v
+  splitSecrets(pipeline)
+       |---> pipeline.json    the design — safe to read, copy, commit
+       +---> credentials.json the one file in the zip that is not
+                    |
+                    v
+       platform reads it at request time   and an env var wins over the file
+                    |
+                    v
+                    the provider, and nowhere else
+```
+
+The value is only ever used by the **server-side service**, which exposes
+*named operations* rather than a proxy path — a page that cannot read a
+credential could otherwise still spend it on any endpoint of the provider's API.
+
+For Legal Data Hunter specifically, the API key is the fit: its MCP endpoint
+also accepts `Authorization: Bearer <key>`, and its REST API takes the same
+bearer token, so either transport works behind the bridge. (LDH's own guidance
+is REST for web apps and MCP for agents; the key path is identical.)
+
 ## Requirements
 
 - Vue 3.4 or higher

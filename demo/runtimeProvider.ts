@@ -34,6 +34,25 @@ export const runtimeManifest: QueryBuilderManifestV3 = {
         supportsFullText: true,
         supportsPagination: true,
       },
+      // The credential is DECLARED, never carried. A host (e.g. legal-blocks)
+      // reads this to render the field and to write credentials.json / an env
+      // var; the value is only ever used by the server-side bridge.
+      methods: [
+        {
+          id: 'search',
+          label: 'Hybrid semantic + keyword search',
+          dependencies: [
+            {
+              id: 'ldh-key',
+              label: 'Legal Data Hunter API key',
+              kind: 'credential',
+              configKeys: ['LDH_KEY'],
+              description:
+                'A token from your Legal Data Hunter account page. An environment variable wins over a stored value.',
+            },
+          ],
+        },
+      ],
     },
     {
       id: 'caselawexplorer',

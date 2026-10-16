@@ -63,6 +63,17 @@ export type {
 
 export { ProviderOperationError } from "legal-retrieval-types";
 
+/**
+ * Backend-dependency helpers: what a provider needs configured, and the
+ * scaffold an operator gets. These describe the requirement — they never carry
+ * a credential value.
+ */
+export declare function requiredDependencies(method: import("legal-retrieval-types").MethodDescriptor): import("legal-retrieval-types").DependencyDescriptor[];
+export declare function unmetDependencies(method: import("legal-retrieval-types").MethodDescriptor): import("legal-retrieval-types").DependencyDescriptor[];
+export declare function dependencyHint(method: import("legal-retrieval-types").MethodDescriptor): string;
+export declare function methodsWithDependencies(methods: import("legal-retrieval-types").MethodDescriptor[]): import("legal-retrieval-types").MethodDescriptor[];
+export declare function buildDependencyScaffold(methods: import("legal-retrieval-types").MethodDescriptor[]): string;
+
 /** Searches legislation by name. Supplied by the host. */
 export declare type SearchLaws = (query: string) => Promise<BWBItem[]>;
 
