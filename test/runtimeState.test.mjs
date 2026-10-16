@@ -41,6 +41,8 @@ const {
   providerForDatabase,
   defaultDatabaseForProvider,
   defaultProviderFor,
+  mergeFieldOptions,
+  FILTER_FIELD_KEYS,
 } = await loadRuntimeState()
 
 const field = (overrides) => ({ key: 'k', label: 'K', control: 'text', ...overrides })
@@ -246,4 +248,48 @@ test('defaultDatabaseForProvider honours the declared default then first enabled
 test('defaultProviderFor prefers the first enabled provider', () => {
   assert.equal(defaultProviderFor(providers), 'ldh')
   assert.equal(defaultProviderFor([]), undefined)
+})
+
+test('mergeFieldOptions fills options from the discovered filters', () => {
+  const fields = [
+    field({ key: 'court', control: 'remote-select', label: 'Court' }),
+    field({ key: 'query', control: 'text' }),
+    field({
+      key: 'language',
+      control: 'select',
+      options: [{ value: 'static', label: 'Static' }],
+    }),
+  ]
+
+  const filters = {
+    source: 'FR/Judilibre',
+    courts: [
+      { value: 'Cour de cassation', label: 'Cour de cassation' },
+      { value: 'Cour d appel', label: "Cour d'appel", count: 12 },
+    ],
+    languages: [{ value: 'fr', label: 'French' }],
+  }
+
+  const merged = mergeFieldOptions(fields, filters)
+  assert.deepEqual(merged[0].options, [
+    { value: 'Cour de cassation', label: 'Cour de cassation' },
+    { value: 'Cour d appel', label: "Cour d'appel (12)" },
+  ])
+  // A field with no matching filter is untouched, and the control is preserved.
+  assert.equal(merged[1].options, undefined)
+  assert.equal(merged[1].control, 'text')
+  // Discovered options win over static ones.
+  assert.deepEqual(merged[2].options, [{ value: 'fr', label: 'French' }])
+})
+
+test('mergeFieldOptions is a no-op without filters', () => {
+  const fields = [field({ key: 'court', control: 'remote-select' })]
+  assert.equal(mergeFieldOptions(fields, undefined), fields)
+  assert.equal(mergeFieldOptions(fields, { source: 'x' }), fields)
+})
+
+test('FILTER_FIELD_KEYS maps provider filters onto singular field keys', () => {
+  assert.equal(FILTER_FIELD_KEYS.courts, 'court')
+  assert.equal(FILTER_FIELD_KEYS.decisionTypes, 'decisionType')
+  assert.equal(FILTER_FIELD_KEYS.subdivisions, 'subdivision')
 })

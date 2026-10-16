@@ -31,6 +31,7 @@ import {
   defaultDatabaseForProvider,
   defaultFieldValues,
   isUserConfigurable,
+  mergeFieldOptions,
   moveField as moveFieldInLayout,
   resetFieldLayout,
   resolveVisibleFields,
@@ -102,6 +103,11 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
   const providerId = ref<string | undefined>(undefined)
   const databaseId = ref<string | undefined>(undefined)
 
+  // Discovery selection: the country narrows which sources are offered, and the
+  // chosen source's filters seed the form's option lists.
+  const discoveryCountry = ref<string | undefined>(undefined)
+  const discoverySource = ref<string | undefined>(undefined)
+
   // State is keyed per provider+cluster so switching providers or databases
   // never mixes one corpus's answers into another's.
   const states = reactive<Record<string, DatabaseFormState>>({})
@@ -128,7 +134,9 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
     databasesForProvider(databases.value, providerId.value),
   )
 
-  const activeFields = computed(() => activeDatabase.value?.fields ?? [])
+  const activeFields = computed(() =>
+    mergeFieldOptions(activeDatabase.value?.fields ?? [], discovery.filters),
+  )
 
   function stateKey(provider: string | undefined, database: string | undefined): string {
     return `${provider ?? ''}::${database ?? ''}`
@@ -193,6 +201,7 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
 
       configError.value = undefined
       stateFor()
+      void refreshDiscovery()
     } catch (error) {
       config.value = null
       configError.value = error
@@ -222,7 +231,7 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
     if (!providers.value.some((provider) => provider.id === id)) return
     providerId.value = id
     databaseId.value = defaultDatabaseForProvider(providers.value, databases.value, id)
-    resetDiscovery()
+    void refreshDiscovery()
   }
 
   function setDatabase(id: string): void {
@@ -230,6 +239,7 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
     if (!database) return
     if (database.provider !== providerId.value) providerId.value = database.provider
     databaseId.value = id
+    void refreshDiscovery()
   }
 
   function setValue(key: string, value: unknown): void {
@@ -256,6 +266,16 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
 
   function resetLayout(): void {
     stateFor().layout = resetFieldLayout()
+  }
+
+  /** Clears the active database's answers, layout and last result. */
+  function resetDatabaseState(): void {
+    const state = stateFor()
+    state.values = defaultFieldValues(activeDatabase.value?.fields ?? [])
+    state.layout = resetFieldLayout()
+    state.result = undefined
+    state.error = undefined
+    state.validated = false
   }
 
   function validate(): FieldValidation {
@@ -305,11 +325,42 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
     discovery.sources = []
     discovery.filters = undefined
     discovery.error = undefined
+    discoveryCountry.value = undefined
+    discoverySource.value = undefined
   }
 
-  function discoveryRequest(): { provider: string; database: string } | undefined {
-    if (!providerId.value || !databaseId.value) return undefined
-    return { provider: providerId.value, database: databaseId.value }
+  function discoveryRequest(): { provider: string; database?: string } | undefined {
+    if (!providerId.value) return undefined
+    return {
+      provider: providerId.value,
+      ...(databaseId.value ? { database: databaseId.value } : {}),
+    }
+  }
+
+  /** Reloads the provider's countries and drops any country/source selection. */
+  async function refreshDiscovery(): Promise<void> {
+    resetDiscovery()
+    if (options.adapter?.discoverCountries) await discoverCountries()
+  }
+
+  /**
+   * Picks the country whose sources to offer. A new country invalidates the
+   * source chosen under the old one, and reloads the source list.
+   */
+  function setDiscoveryCountry(code: string | undefined): void {
+    discoveryCountry.value = code
+    discoverySource.value = undefined
+    discovery.sources = []
+    discovery.filters = undefined
+    if (code) void discoverSources(code)
+    else discoverySequence += 1
+  }
+
+  /** Picks the source whose filters seed the form, loading them. */
+  function setDiscoverySource(id: string | undefined): void {
+    discoverySource.value = id
+    discovery.filters = undefined
+    if (id) void loadFilters(id)
   }
 
   /** Runs a discovery call, guarded so a slow reply cannot overwrite a newer one. */
@@ -411,6 +462,7 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
     toggleField,
     moveField,
     resetLayout,
+    resetDatabaseState,
     stateFor,
 
     // validation + search
@@ -420,9 +472,14 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
 
     // discovery
     discovery,
+    discoveryCountry,
+    discoverySource,
     discoverCountries,
     discoverSources,
     loadFilters,
+    refreshDiscovery,
+    setDiscoveryCountry,
+    setDiscoverySource,
   }
 }
 

@@ -241,6 +241,13 @@ export declare function collectParams(
   fields: FieldDescriptor[],
   values: Record<string, unknown>,
 ): Record<string, unknown>;
+/** Which field key a provider filter's options belong to (plural → singular). */
+export declare const FILTER_FIELD_KEYS: Record<string, string>;
+/** Fills each field's `options` from the provider's discovered filters. */
+export declare function mergeFieldOptions(
+  fields: FieldDescriptor[],
+  filters: ProviderFilterSet | undefined,
+): FieldDescriptor[];
 export declare function databasesForProvider(
   databases: LegalDatabaseDescriptor[],
   providerId: string | undefined,
@@ -321,6 +328,8 @@ export interface LegalSearchRuntime {
   toggleField(key: string, visible: boolean): void;
   moveField(key: string, delta: number): void;
   resetLayout(): void;
+  /** Clears the active database's answers, layout and last result. */
+  resetDatabaseState(): void;
   stateFor(provider?: string, database?: string): DatabaseFormState;
 
   validate(): FieldValidation;
@@ -328,9 +337,19 @@ export interface LegalSearchRuntime {
   search(): Promise<NormalizedSearchResult | undefined>;
 
   discovery: RuntimeDiscoveryState;
+  /** Country whose sources are offered, when the provider supports discovery. */
+  discoveryCountry: Ref<string | undefined>;
+  /** Source whose filters seed the form, when the provider supports discovery. */
+  discoverySource: Ref<string | undefined>;
   discoverCountries(): Promise<void>;
   discoverSources(country?: string): Promise<void>;
   loadFilters(source: string): Promise<void>;
+  /** Reloads the provider's countries and drops the country/source selection. */
+  refreshDiscovery(): Promise<void>;
+  /** Picks the country; a new country clears the source and reloads the list. */
+  setDiscoveryCountry(code: string | undefined): void;
+  /** Picks the source and loads its filters. */
+  setDiscoverySource(id: string | undefined): void;
 }
 
 export declare function useLegalSearchRuntime(

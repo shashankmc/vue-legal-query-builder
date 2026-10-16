@@ -58,6 +58,8 @@ export {
   resetFieldLayout,
   validateFields,
   collectParams,
+  mergeFieldOptions,
+  FILTER_FIELD_KEYS,
   databasesForProvider,
   providerForDatabase,
   defaultDatabaseForProvider,

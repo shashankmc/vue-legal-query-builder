@@ -1,5 +1,8 @@
 <template>
-    <div class="form-group">
+    <!-- The runtime selector owns provider/database choice whenever a manifest
+         resolved, so the legacy dataset buttons would be a second, conflicting
+         picker. See docs/runtime-configurable-legal-search-builder.md. -->
+    <div v-if="!runtimeDriven" class="form-group">
         <label>Dataset</label>
         <div class="button-group">
             <button v-for="dataset in datasets" :key="dataset.id" type="button" :disabled="dataset.disabled"
@@ -14,6 +17,7 @@
 import { computed, inject, type InjectionKey, type Ref } from 'vue'
 import type { Dataset, DatasetDescriptor } from '../types'
 import { BUILT_IN_DATASETS } from '../types'
+import { useLegalSearchRuntimeContext } from '../runtime/useLegalSearchRuntime'
 
 const selectedDataset = defineModel<Dataset>('selectedDataset')
 
@@ -24,6 +28,9 @@ const datasetsInjected = inject<Ref<DatasetDescriptor[]>>(
     computed(() => BUILT_IN_DATASETS),
 )
 const datasets = computed(() => datasetsInjected.value)
+
+const runtime = useLegalSearchRuntimeContext()
+const runtimeDriven = computed(() => runtime?.ready.value === true)
 </script>
 
 <style>

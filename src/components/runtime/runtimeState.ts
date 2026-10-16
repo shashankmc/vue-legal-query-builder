@@ -5,10 +5,12 @@
 // `useLegalSearchRuntime` layers reactivity on top of this.
 
 import type {
+  DiscoveryOption,
   FieldControl,
   FieldDescriptor,
   LegalDatabaseDescriptor,
   LegalSearchProviderDescriptor,
+  ProviderFilterSet,
 } from 'legal-retrieval-types'
 
 /** Which optional fields a user hid, and the order they put the rest in. */
@@ -312,4 +314,54 @@ export function defaultProviderFor(
   providers: LegalSearchProviderDescriptor[],
 ): string | undefined {
   return providers.find((provider) => !provider.disabled)?.id ?? providers[0]?.id
+}
+
+/**
+ * Which field key a provider filter's options belong to. A provider reports
+ * filters under plural names (`courts`); a form field names the singular key
+ * (`court`). Keeping the convention here means a manifest author only has to
+ * name the field to have its options filled from discovery.
+ */
+export const FILTER_FIELD_KEYS: Record<string, string> = {
+  courts: 'court',
+  jurisdictions: 'jurisdiction',
+  chambers: 'chamber',
+  decisionTypes: 'decisionType',
+  languages: 'language',
+  courtTiers: 'courtTier',
+  subdivisions: 'subdivision',
+}
+
+function toFieldOptions(options: DiscoveryOption[]): { value: string; label: string }[] {
+  return options.map((option) => ({
+    value: option.value,
+    label: option.count !== undefined ? `${option.label} (${option.count})` : option.label,
+  }))
+}
+
+/**
+ * Fills each field's `options` from the provider's discovered filters, so a
+ * `court` field offers only the courts the chosen source actually has. Discovered
+ * options win over any the manifest declared statically.
+ */
+export function mergeFieldOptions(
+  fields: FieldDescriptor[],
+  filters: ProviderFilterSet | undefined,
+): FieldDescriptor[] {
+  if (!filters) return fields
+
+  const discovered: Record<string, { value: string; label: string }[]> = {}
+  for (const [filterName, fieldKey] of Object.entries(FILTER_FIELD_KEYS)) {
+    const options = (filters as Record<string, unknown>)[filterName]
+    if (Array.isArray(options) && options.length > 0) {
+      discovered[fieldKey] = toFieldOptions(options as DiscoveryOption[])
+    }
+  }
+
+  if (Object.keys(discovered).length === 0) return fields
+
+  return fields.map((field) => {
+    const options = discovered[field.key]
+    return options ? { ...field, options } : field
+  })
 }

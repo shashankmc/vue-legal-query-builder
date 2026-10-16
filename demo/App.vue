@@ -34,6 +34,14 @@
           </select>
         </label>
 
+        <label>
+          Provider runtime
+          <select v-model="runtimeKey">
+            <option value="off">Off (datasets / guided structure)</option>
+            <option value="ldh">Legal Data Hunter manifest (runtime)</option>
+          </select>
+        </label>
+
         <label class="check">
           <input type="checkbox" v-model="withLawSearch" />
           Provide <code>onSearchLaws</code>
@@ -60,11 +68,17 @@
         :subtitle="subtitle"
         :guided-structure="structure"
         :datasets="datasets"
+        :manifest="manifest"
+        :adapter="adapter"
         :on-search-laws="withLawSearch ? searchLaws : undefined"
         :on-submit="withOnSubmit ? handleOnSubmit : undefined"
         @submit="onSubmit"
         @success="onSuccess"
         @error="onError"
+        @provider-change="(id) => log('submit', { provider: id })"
+        @database-change="(id) => log('submit', { database: id })"
+        @operation-start="(op) => log('submit', { operationStart: op })"
+        @operation-error="(op, error) => log('error', { operationError: op, message: error?.message })"
       />
     </section>
 
@@ -102,6 +116,8 @@
           <tr><td>Host-supplied dataset (generic payload)</td><td>Datasets = BlueLab…</td><td class="new">new seam</td></tr>
           <tr><td>Backward compatibility (no props ⇒ unchanged)</td><td>Datasets = Built-ins</td><td class="new">new seam</td></tr>
           <tr><td>Host-defined field set, no fork</td><td>Structure = BlueLab-style</td><td class="new">new seam</td></tr>
+          <tr><td>Provider runtime (manifest + adapter)</td><td>Provider runtime = Legal Data Hunter</td><td class="new">new seam</td></tr>
+          <tr><td>Runtime discovery (country → source → filters)</td><td>Provider runtime = Legal Data Hunter</td><td class="new">new seam</td></tr>
         </tbody>
       </table>
     </section>
@@ -113,10 +129,12 @@ import { computed, ref } from 'vue'
 import { LegalDocsForm, FormType, BUILT_IN_DATASETS, type DatasetDescriptor, type GuidedStructure, type LegalDocsQuery } from '../src'
 import { allBlocksStructure, bluelabStructure, realisticStructure } from './structures'
 import { searchDocuments, searchLaws as stubSearchLaws, type SearchResponse } from './stubBackend'
+import { runtimeAdapter, runtimeManifest } from './runtimeProvider'
 
 const mode = ref<'free' | 'guided'>('guided')
 const structureKey = ref<'realistic' | 'allBlocks' | 'bluelab'>('realistic')
 const datasetKey = ref<'builtin' | 'builtin-bluelab' | 'bluelab-only'>('builtin')
+const runtimeKey = ref<'off' | 'ldh'>('off')
 const withLawSearch = ref(true)
 const withOnSubmit = ref(true)
 const title = ref('Search legal documents')
@@ -136,8 +154,11 @@ const datasetsByKey: Record<string, DatasetDescriptor[] | undefined> = {
 }
 const datasets = computed(() => datasetsByKey[datasetKey.value])
 
+const manifest = computed(() => (runtimeKey.value === 'ldh' ? runtimeManifest : undefined))
+const adapter = computed(() => (runtimeKey.value === 'ldh' ? runtimeAdapter : undefined))
+
 // Remount the form when the shape changes, so switching modes/structures is clean.
-const formKey = computed(() => `${mode.value}:${structureKey.value}:${datasetKey.value}:${title.value}`)
+const formKey = computed(() => `${mode.value}:${structureKey.value}:${datasetKey.value}:${runtimeKey.value}:${title.value}`)
 
 interface LoggedEvent {
   kind: 'submit' | 'success' | 'error'

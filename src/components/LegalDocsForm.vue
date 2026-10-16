@@ -2,8 +2,18 @@
     <div class="legal-docs-form">
         <h2 v-if="props.title" class="title">{{ props.title }}</h2>
         <p v-if="props.subtitle" class="subtitle">{{ props.subtitle }}</p>
+
+        <!-- The provider-agnostic runtime: a manifest resolved into providers,
+             databases and generated fields. Submitting routes through the host
+             adapter. Without a manifest this block renders nothing and the
+             legacy body below runs unchanged. -->
+        <RuntimeSelector v-if="runtime.ready.value" :runtime="runtime" />
+
+        <RuntimeFieldsForm v-if="runtime.ready.value && runtime.hasDeclaredFields.value" :runtime="runtime"
+            :loading="loading" @submit="handleSubmit" @handleReset="handleReset" />
+
         <DatasetFieldsForm
-            v-if="activeDataset && hasDeclaredFields(activeDataset)"
+            v-else-if="activeDataset && hasDeclaredFields(activeDataset)"
             :dataset="activeDataset"
             :formData="formData"
             :values="customParams"
@@ -83,6 +93,8 @@ import FreeForm from './forms/FreeForm.vue'
 import GuidedForm from './forms/GuidedForm.vue'
 import DatasetFieldsForm from './DatasetFieldsForm.vue'
 import RankedList from './RankedList.vue'
+import RuntimeSelector from './runtime/RuntimeSelector.vue'
+import RuntimeFieldsForm from './runtime/RuntimeFieldsForm.vue'
 
 const props = withDefaults(defineProps<LegalDocsFormProps>(), {
     type: FormType.FREE
@@ -466,6 +478,7 @@ const handleRuntimeSubmit = async () => {
 }
 
 const handleReset = () => {
+    runtime.resetDatabaseState()
     formData.selectedDataset = defaultDataset(datasets.value) as Dataset
     for (const key of Object.keys(customParams)) delete customParams[key]
     formData.keywords = []

@@ -488,6 +488,31 @@ Field layout, dependency gating, validation and param collection are pure
 functions in the same module and are exported too (`resolveVisibleFields`,
 `validateFields`, `collectParams`, `defaultFieldValues`, `moveField`, …).
 
+### Discovery narrows the form
+
+When a provider advertises `capabilities.supportsDiscovery`, the form adds
+**country** and **source** pickers. Choosing a country clears the source and
+reloads the source list; choosing a source loads its filters, which fill the
+matching fields' options, so a `court` field offers only the courts that source
+actually has.
+
+The provider reports filters under plural names and the field names the singular
+key, matched by a small published convention:
+
+| Provider filter | Field key |
+|---|---|
+| `courts` | `court` |
+| `jurisdictions` | `jurisdiction` |
+| `chambers` | `chamber` |
+| `decisionTypes` | `decisionType` |
+| `languages` | `language` |
+| `courtTiers` | `courtTier` |
+| `subdivisions` | `subdivision` |
+
+The map is exported as `FILTER_FIELD_KEYS`, and `mergeFieldOptions(fields,
+filters)` applies it if you want to drive it yourself. In-flight discovery calls
+are guarded, so a slow reply cannot overwrite a newer selection.
+
 ## License
 
 MIT

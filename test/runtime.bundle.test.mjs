@@ -49,7 +49,7 @@ const manifest = {
         },
         {
           key: 'court',
-          control: 'text',
+          control: 'remote-select',
           label: 'Court',
           dependencies: [{ key: 'country', operator: 'truthy' }],
         },
@@ -194,6 +194,41 @@ test('discovery runs through the adapter and survives a failure', { skip }, asyn
     return true
   })
   assert.equal(failing.activeState.value.error.code, 'NETWORK_ERROR')
+})
+
+function flush() {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}
+
+test('discovery selection seeds the form options', { skip }, async () => {
+  const { useLegalSearchRuntime } = await import(bundlePath)
+
+  const runtime = useLegalSearchRuntime({ manifest, adapter: makeAdapter() })
+  await runtime.load()
+
+  await runtime.refreshDiscovery()
+  assert.equal(runtime.discovery.countries.length, 1)
+
+  // A country clears any source chosen under the previous country.
+  runtime.setDiscoveryCountry('FR')
+  await flush()
+  assert.equal(runtime.discoverySource.value, undefined)
+  assert.equal(runtime.discovery.sources.length, 1)
+
+  // A source loads its filters, which seed the matching field's options.
+  runtime.setDiscoverySource('FR/Judilibre')
+  await flush()
+  assert.equal(runtime.discoverySource.value, 'FR/Judilibre')
+  assert.equal(runtime.discovery.filters.courts.length, 1)
+
+  const court = runtime.activeFields.value.find((f) => f.key === 'court')
+  assert.deepEqual(court.options, [{ value: 'Cour de cassation', label: 'Cour de cassation' }])
+
+  // Switching database refreshes discovery and drops the source selection.
+  runtime.setDatabase('legislation')
+  await flush()
+  assert.equal(runtime.discoverySource.value, undefined)
+  assert.equal(runtime.discovery.filters, undefined)
 })
 
 test('a provider error passes through normalizeAdapterError untouched', { skip }, async () => {
