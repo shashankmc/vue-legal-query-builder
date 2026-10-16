@@ -28,3 +28,6 @@ dist-ssr
 # Test scratch
 coverage/
 dist-demo/
+
+# CodeGraph local index
+.codegraph/

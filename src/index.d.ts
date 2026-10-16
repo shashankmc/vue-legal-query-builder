@@ -38,7 +38,12 @@ export declare enum BlockType {
   TEXTAREA_INPUT = "TextAreaInput",
 }
 
-export type Dataset = "RS" | "ECHR" | "CJEU";
+/**
+ * Dataset a query targets. The built-ins are RS, ECHR and CJEU (CJEU has no
+ * backing endpoint yet and stays disabled), but the type stays open so a host
+ * can register a dataset of its own.
+ */
+export type Dataset = "RS" | "ECHR" | "CJEU" | (string & {});
 
 export interface Block {
   type: BlockType;

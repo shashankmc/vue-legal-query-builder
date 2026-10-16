@@ -3,7 +3,7 @@
         <h2 v-if="props.title" class="title">{{ props.title }}</h2>
         <p v-if="props.subtitle" class="subtitle">{{ props.subtitle }}</p>
         <DatasetFieldsForm
-            v-if="hasDeclaredFields(activeDataset)"
+            v-if="activeDataset && hasDeclaredFields(activeDataset)"
             :dataset="activeDataset"
             :formData="formData"
             :values="customParams"

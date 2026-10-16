@@ -26,8 +26,12 @@ export enum BlockType {
   TEXTAREA_INPUT = 'TextAreaInput',
 }
 
-/** Dataset a query targets. CJEU has no backing endpoint in the API yet and stays disabled in the UI. */
-export type Dataset = 'RS' | 'ECHR' | 'CJEU'
+/**
+ * Dataset a query targets. The built-ins are RS, ECHR and CJEU (CJEU has no
+ * backing endpoint yet and stays disabled), but the type stays open so a host
+ * can register a dataset of its own. See docs/dataset-agnostic-seam.md.
+ */
+export type Dataset = 'RS' | 'ECHR' | 'CJEU' | (string & {})
 
 /** The datasets offered when a host passes no `datasets` prop. */
 export const BUILT_IN_DATASETS: DatasetDescriptor[] = [

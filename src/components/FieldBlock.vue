@@ -39,6 +39,7 @@ const set = (value: unknown) => emit('update:modelValue', value)
 
 const normalizedBlock = computed(() => {
     const raw = props.field.block
+    if (!raw) return undefined
     if ((Object.values(BlockType) as string[]).includes(raw)) return raw as BlockType
     const wanted = raw.trim().toLowerCase().replace(/[\s_-]/g, '')
     return (Object.values(BlockType) as string[]).find(
