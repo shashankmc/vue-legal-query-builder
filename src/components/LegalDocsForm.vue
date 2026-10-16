@@ -62,7 +62,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, provide } from 'vue'
+import { ref, reactive, computed, provide, watch } from 'vue'
 import { DocType } from 'legal-docs-types'
 import type {
     RechtspraakQueryParameters,
@@ -72,11 +72,12 @@ import type {
     EchrDocumentType,
     AttributesToFetch,
 } from 'legal-docs-types'
-import type { LegalDocsFormProps, Dataset, LegalDocsQuery, GoalFixedParameters, DatasetDescriptor } from './types'
+import type { LegalDocsFormProps, Dataset, LegalDocsQuery, GoalFixedParameters, DatasetDescriptor, ResolvedLegalSearchConfig } from './types'
 import { FormType } from './types'
 import { defaultDataset, isBuiltInDataset, resolveDatasets } from './datasets'
 import { collectDatasetParams, hasDeclaredFields } from './datasetFields'
 import { provideHostCallbacks } from './hostCallbacks'
+import { provideLegalSearchRuntime, useLegalSearchRuntime } from './runtime/useLegalSearchRuntime'
 import { resolveGuidedStructure } from '../templates'
 import FreeForm from './forms/FreeForm.vue'
 import GuidedForm from './forms/GuidedForm.vue'
@@ -105,7 +106,43 @@ const emit = defineEmits<{
     submit: [data: LegalDocsQuery]
     success: [result: any]
     error: [error: Error]
+    'provider-change': [providerId: string | undefined]
+    'database-change': [databaseId: string | undefined]
+    'configuration-change': [config: ResolvedLegalSearchConfig]
+    'operation-start': [operation: string, detail?: unknown]
+    'operation-success': [operation: string, result: unknown]
+    'operation-error': [operation: string, error: Error]
 }>()
+
+// The provider-agnostic runtime. A manifest (or a loader) switches the form onto
+// the runtime path — providers, databases and generated fields come from it —
+// while a host adapter routes the search. Without either, the form behaves
+// exactly as before: it builds a query and hands it back.
+const runtime = useLegalSearchRuntime({
+    manifest: computed(() => props.manifest),
+    loadManifest: props.loadManifest,
+    adapter: props.adapter,
+    initialProvider: props.initialProvider,
+    initialDatabase: props.initialDatabase,
+})
+provideLegalSearchRuntime(runtime)
+
+void runtime.load()
+
+watch(() => runtime.providerId.value, (value) => emit('provider-change', value))
+watch(() => runtime.databaseId.value, (value) => emit('database-change', value))
+watch(
+    () => runtime.config.value,
+    (value) => {
+        if (value) emit('configuration-change', value)
+    },
+)
+watch(
+    () => runtime.configError.value,
+    (value) => {
+        if (value) emit('error', value instanceof Error ? value : new Error(String(value)))
+    },
+)
 
 // Form data
 const formData = reactive({
@@ -356,6 +393,15 @@ const handleSubmit = async (isValid: boolean) => {
         return
     }
 
+    // A manifest with a declared field schema and a host adapter means the
+    // runtime path: collect the database's params and route them through the
+    // adapter, emitting operation events. Otherwise fall through to the
+    // legacy path, which only ever emits.
+    if (runtime.ready.value && runtime.hasDeclaredFields.value && props.adapter?.search) {
+        await handleRuntimeSubmit()
+        return
+    }
+
     loading.value = true
 
     try {
@@ -381,6 +427,38 @@ const handleSubmit = async (isValid: boolean) => {
         }
     } catch (err: any) {
         error.value = err.message || 'An error occurred'
+        emit('error', err)
+    } finally {
+        loading.value = false
+    }
+}
+
+const handleRuntimeSubmit = async () => {
+    const validation = runtime.validate()
+    if (!validation.valid) {
+        hasValidationWarning.value = true
+        return
+    }
+
+    const request = runtime.buildRequest()
+    if (!request) return
+
+    loading.value = true
+    emit('operation-start', 'search', request)
+
+    try {
+        const result = await runtime.search()
+        if (!result) return
+
+        const count = result.hits.length
+        const total = result.totalHits ?? count
+        successMessage.value = `${total} document${total !== 1 ? 's' : ''} fetched`
+        lastResult.value = result
+        emit('operation-success', 'search', result)
+        emit('success', result)
+    } catch (err: any) {
+        error.value = err.message || 'An error occurred'
+        emit('operation-error', 'search', err)
         emit('error', err)
     } finally {
         loading.value = false

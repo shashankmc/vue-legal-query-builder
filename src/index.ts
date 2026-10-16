@@ -9,6 +9,63 @@ export type { SearchLaws } from "./components/hostCallbacks";
 export type { LegalDocsFormProps, Dataset, DatasetDescriptor, FieldDescriptor, ResultViewRef, LegalDocsQuery, Goal, GoalFixedParameters, GuidedStructure, GuidedTemplate, GuidedTemplateId, Step, Block } from "./components/types";
 export { BUILT_IN_DATASETS, FormType, BlockType } from "./components/types";
 
+// The provider-agnostic runtime: the providers/databases a manifest resolves to
+// and the host adapter the form calls. See
+// docs/runtime-configurable-legal-search-builder.md.
+export type {
+  FieldControl,
+  FieldDependency,
+  LegalDatabaseDescriptor,
+  LegalSearchProviderDescriptor,
+  LegalSearchAdapter,
+  QueryBuilderManifest,
+  QueryBuilderManifestV1,
+  QueryBuilderManifestV2,
+  QueryBuilderManifestV3,
+  ResolvedLegalSearchConfig,
+  ProviderOperation,
+  ProviderOperationErrorCode,
+  DiscoveryOption,
+  ProviderFilterSet,
+  NormalizedSearchResult,
+  NormalizedSearchHit,
+  NormalizedLegalDocument,
+  ResolvedLegalReference,
+} from "./components/types";
+export { ProviderOperationError } from "legal-retrieval-types";
+
+export {
+  useLegalSearchRuntime,
+  useLegalSearchRuntimeContext,
+  provideLegalSearchRuntime,
+  normalizeAdapterError,
+} from "./components/runtime/useLegalSearchRuntime";
+export type {
+  LegalSearchRuntime,
+  DatabaseFormState,
+  RuntimeDiscoveryState,
+  UseLegalSearchRuntimeOptions,
+} from "./components/runtime/useLegalSearchRuntime";
+export {
+  isUserConfigurable,
+  defaultFieldValues,
+  orderFields,
+  applyLayout,
+  resolveVisibleFields,
+  dependencySatisfied,
+  setFieldVisible,
+  moveField,
+  resetFieldLayout,
+  validateFields,
+  collectParams,
+  databasesForProvider,
+  providerForDatabase,
+  defaultDatabaseForProvider,
+  defaultProviderFor,
+  EMPTY_FIELD_LAYOUT,
+} from "./components/runtime/runtimeState";
+export type { FieldLayout, FieldValidation } from "./components/runtime/runtimeState";
+
 // The declarative dataset field schema: a generic, app-agnostic provisions
 // dataset plus the pure collect/validate helpers a host can reuse.
 export { provisionsDataset } from "./components/datasets";

@@ -1,4 +1,4 @@
-import type { DefineComponent, Plugin } from "vue";
+import type { Component, DefineComponent, Plugin, Ref } from "vue";
 import type {
   RechtspraakQueryParameters,
   RechtspraakDocument,
@@ -8,9 +8,60 @@ import type {
   EchrFullTextDocument,
   BWBItem,
 } from "legal-docs-types";
-import type { DatasetDescriptor, FieldDescriptor, ResultViewRef } from "legal-retrieval-types";
+import type {
+  DatasetDescriptor,
+  FieldDescriptor,
+  ResultViewRef,
+  FieldControl,
+  FieldDependency,
+  LegalDatabaseDescriptor,
+  LegalSearchProviderDescriptor,
+  LegalSearchAdapter,
+  QueryBuilderManifest,
+  QueryBuilderManifestV1,
+  QueryBuilderManifestV2,
+  QueryBuilderManifestV3,
+  ResolvedLegalSearchConfig,
+  ProviderOperation,
+  ProviderOperationErrorCode,
+  ProviderSearchRequest,
+  DiscoveryOption,
+  ProviderFilterSet,
+  NormalizedSearchResult,
+  NormalizedSearchHit,
+  NormalizedLegalDocument,
+  ResolvedLegalReference,
+  ReferenceMatchType,
+  SourceIssueType,
+} from "legal-retrieval-types";
 
-export type { DatasetDescriptor, FieldDescriptor, ResultViewRef };
+export type {
+  DatasetDescriptor,
+  FieldDescriptor,
+  ResultViewRef,
+  FieldControl,
+  FieldDependency,
+  LegalDatabaseDescriptor,
+  LegalSearchProviderDescriptor,
+  LegalSearchAdapter,
+  QueryBuilderManifest,
+  QueryBuilderManifestV1,
+  QueryBuilderManifestV2,
+  QueryBuilderManifestV3,
+  ResolvedLegalSearchConfig,
+  ProviderOperation,
+  ProviderOperationErrorCode,
+  DiscoveryOption,
+  ProviderFilterSet,
+  NormalizedSearchResult,
+  NormalizedSearchHit,
+  NormalizedLegalDocument,
+  ResolvedLegalReference,
+  ReferenceMatchType,
+  SourceIssueType,
+};
+
+export { ProviderOperationError } from "legal-retrieval-types";
 
 /** Searches legislation by name. Supplied by the host. */
 export declare type SearchLaws = (query: string) => Promise<BWBItem[]>;
@@ -138,6 +189,167 @@ export declare function isFieldFilled(value: unknown): boolean;
 /** Whether a dataset declares a field schema. */
 export declare function hasDeclaredFields(dataset: DatasetDescriptor | undefined): boolean;
 
+// ---------------------------------------------------------------------------
+// Provider-agnostic runtime
+// ---------------------------------------------------------------------------
+
+/** Which optional fields a user hid, and the order they put the rest in. */
+export interface FieldLayout {
+  hidden: string[];
+  order: string[];
+}
+
+export declare const EMPTY_FIELD_LAYOUT: FieldLayout;
+
+export interface FieldValidation {
+  valid: boolean;
+  missing: string[];
+  errors: Record<string, string>;
+}
+
+export declare function resetFieldLayout(): FieldLayout;
+export declare function isUserConfigurable(field: FieldDescriptor): boolean;
+export declare function defaultFieldValues(fields: FieldDescriptor[]): Record<string, unknown>;
+export declare function orderFields(fields: FieldDescriptor[], layout: FieldLayout): FieldDescriptor[];
+export declare function applyLayout(fields: FieldDescriptor[], layout: FieldLayout): FieldDescriptor[];
+export declare function dependencySatisfied(
+  field: FieldDescriptor,
+  values: Record<string, unknown>,
+): boolean;
+export declare function resolveVisibleFields(
+  fields: FieldDescriptor[],
+  layout: FieldLayout,
+  values: Record<string, unknown>,
+): FieldDescriptor[];
+export declare function setFieldVisible(
+  fields: FieldDescriptor[],
+  layout: FieldLayout,
+  key: string,
+  visible: boolean,
+): FieldLayout;
+export declare function moveField(
+  fields: FieldDescriptor[],
+  layout: FieldLayout,
+  key: string,
+  delta: number,
+): FieldLayout;
+export declare function validateFields(
+  fields: FieldDescriptor[],
+  values: Record<string, unknown>,
+): FieldValidation;
+export declare function collectParams(
+  fields: FieldDescriptor[],
+  values: Record<string, unknown>,
+): Record<string, unknown>;
+export declare function databasesForProvider(
+  databases: LegalDatabaseDescriptor[],
+  providerId: string | undefined,
+): LegalDatabaseDescriptor[];
+export declare function providerForDatabase(
+  providers: LegalSearchProviderDescriptor[],
+  databases: LegalDatabaseDescriptor[],
+  databaseId: string | undefined,
+): LegalSearchProviderDescriptor | undefined;
+export declare function defaultDatabaseForProvider(
+  providers: LegalSearchProviderDescriptor[],
+  databases: LegalDatabaseDescriptor[],
+  providerId: string | undefined,
+): string | undefined;
+export declare function defaultProviderFor(
+  providers: LegalSearchProviderDescriptor[],
+): string | undefined;
+
+/** The field state of one database, kept apart from every other database's. */
+export interface DatabaseFormState {
+  values: Record<string, unknown>;
+  layout: FieldLayout;
+  loading: boolean;
+  validated: boolean;
+  result?: NormalizedSearchResult;
+  error?: any;
+}
+
+/** The discovery state of the active provider. */
+export interface RuntimeDiscoveryState {
+  loading: boolean;
+  countries: DiscoveryOption[];
+  sources: DiscoveryOption[];
+  filters?: ProviderFilterSet;
+  error?: any;
+}
+
+export interface UseLegalSearchRuntimeOptions {
+  /** A manifest to resolve. When it is a ref, a change re-resolves the runtime. */
+  manifest?:
+    | QueryBuilderManifest
+    | Ref<QueryBuilderManifest | undefined>
+    | { value: QueryBuilderManifest | undefined };
+  /** Fetch the manifest when none was passed. */
+  loadManifest?: () => Promise<QueryBuilderManifest | unknown>;
+  /** The host adapter. A missing adapter means the form only ever emits. */
+  adapter?: LegalSearchAdapter;
+  initialProvider?: string;
+  initialDatabase?: string;
+}
+
+/** The runtime state of a configurable search form. */
+export interface LegalSearchRuntime {
+  config: Ref<ResolvedLegalSearchConfig | null>;
+  configError: Ref<unknown>;
+  loadingManifest: Ref<boolean>;
+  ready: Ref<boolean>;
+  load(): Promise<void>;
+
+  providers: Ref<LegalSearchProviderDescriptor[]>;
+  databases: Ref<LegalDatabaseDescriptor[]>;
+  providerId: Ref<string | undefined>;
+  databaseId: Ref<string | undefined>;
+  activeProvider: Ref<LegalSearchProviderDescriptor | undefined>;
+  activeDatabase: Ref<LegalDatabaseDescriptor | undefined>;
+  databasesOfActiveProvider: Ref<LegalDatabaseDescriptor[]>;
+  setProvider(id: string): void;
+  setDatabase(id: string): void;
+
+  activeFields: Ref<FieldDescriptor[]>;
+  visibleFields: Ref<FieldDescriptor[]>;
+  hasDeclaredFields: Ref<boolean>;
+  activeValues: Ref<Record<string, unknown>>;
+  activeLayout: Ref<FieldLayout>;
+  activeState: Ref<DatabaseFormState>;
+  setValue(key: string, value: unknown): void;
+  setValues(values: Record<string, unknown>): void;
+  toggleField(key: string, visible: boolean): void;
+  moveField(key: string, delta: number): void;
+  resetLayout(): void;
+  stateFor(provider?: string, database?: string): DatabaseFormState;
+
+  validate(): FieldValidation;
+  buildRequest(cursor?: string): ProviderSearchRequest | undefined;
+  search(): Promise<NormalizedSearchResult | undefined>;
+
+  discovery: RuntimeDiscoveryState;
+  discoverCountries(): Promise<void>;
+  discoverSources(country?: string): Promise<void>;
+  loadFilters(source: string): Promise<void>;
+}
+
+export declare function useLegalSearchRuntime(
+  options?: UseLegalSearchRuntimeOptions,
+): LegalSearchRuntime;
+
+/** Called by LegalDocsForm so its picker and field renderer can reach the runtime. */
+export declare function provideLegalSearchRuntime(runtime: LegalSearchRuntime): void;
+
+/** The runtime the form provided, or undefined when mounted outside one. */
+export declare function useLegalSearchRuntimeContext(): LegalSearchRuntime | undefined;
+
+/** Turns a provider failure into a stable error the form can render. */
+export declare function normalizeAdapterError(
+  error: unknown,
+  operation: ProviderOperation,
+  provider?: string,
+): import("legal-retrieval-types").ProviderOperationError;
+
 export interface LegalDocsFormProps {
   title?: string;
   subtitle?: string;
@@ -161,6 +373,20 @@ export interface LegalDocsFormProps {
    * the API itself — point this at your own server.
    */
   onSearchLaws?: SearchLaws;
+  /** A provider/database manifest to resolve into a runtime-configurable form. */
+  manifest?: QueryBuilderManifest;
+  /** Fetch the manifest when none is passed. */
+  loadManifest?: () => Promise<QueryBuilderManifest | unknown>;
+  /** The host's provider adapter. The form never reaches a provider itself. */
+  adapter?: LegalSearchAdapter;
+  /** Provider selected on mount. Falls back to the manifest's default. */
+  initialProvider?: string;
+  /** Database selected on mount. Falls back to the provider's default. */
+  initialDatabase?: string;
+  /** Custom field components, keyed by `FieldDescriptor.block`. */
+  fieldComponents?: Record<string, Component>;
+  /** Custom result views, keyed by `ResultViewRef.kind`. */
+  resultViews?: Record<string, Component>;
 }
 
 export declare const LegalDocsForm: DefineComponent<LegalDocsFormProps, {}, any>;

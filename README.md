@@ -290,8 +290,18 @@ Also exported:
 | `type` | 'free' \| 'guided' | 'free' | Form type (FreeForm or GuidedForm) |
 | `title` | string | undefined | Form title (optional) |
 | `subtitle` | string | undefined | Form subtitle (optional) |
+| `datasets` | DatasetDescriptor[] | undefined | Datasets the picker offers. Omit for the built-ins (RS / ECHR / disabled CJEU) |
 | `guidedStructure` | GuidedStructure | undefined | Structure to render in guided mode. Takes precedence over `guidedTemplate` |
 | `guidedTemplate` | GuidedTemplateId | undefined | Id of a [built-in template](#built-in-templates), used when no `guidedStructure` is given |
+| `onSubmit` | (query: LegalDocsQuery) => Promise<any> | undefined | Your server's search endpoint |
+| `onSearchLaws` | (query: string) => Promise<BWBItem[]> | undefined | Your server's law-name lookup |
+| `manifest` | QueryBuilderManifest | undefined | A provider/database manifest that switches the form onto the [runtime path](#provider-agnostic-runtime) |
+| `loadManifest` | () => Promise<QueryBuilderManifest> | undefined | Fetch the manifest when none is passed |
+| `adapter` | LegalSearchAdapter | undefined | The host's provider adapter; submitting routes the query through it |
+| `initialProvider` | string | undefined | Provider selected on mount |
+| `initialDatabase` | string | undefined | Database selected on mount |
+| `fieldComponents` | Record<string, Component> | undefined | Custom field components, keyed by `FieldDescriptor.block` |
+| `resultViews` | Record<string, Component> | undefined | Custom result views, keyed by `ResultViewRef.kind` |
 
 ## Events
 
@@ -300,6 +310,12 @@ Also exported:
 | `@submit` | LegalDocsQuery | Emitted when form is submitted and data is valid. `LegalDocsQuery` is `{ dataset: 'RS', params: RechtspraakQueryParameters } \| { dataset: 'ECHR', params: EchrQueryParameters }` |
 | `@success` | any | Emitted when search completes successfully |
 | `@error` | Error | Emitted when an error occurs |
+| `@provider-change` | string \| undefined | Emitted when the active provider changes |
+| `@database-change` | string \| undefined | Emitted when the active database changes |
+| `@configuration-change` | ResolvedLegalSearchConfig | Emitted when a manifest resolves into the runtime config |
+| `@operation-start` | (operation: string, detail?: unknown) | Emitted before an adapter operation runs |
+| `@operation-success` | (operation: string, result: unknown) | Emitted when an adapter operation succeeds |
+| `@operation-error` | (operation: string, error: Error) | Emitted when an adapter operation fails |
 
 ## Form-Specific Behaviors
 
@@ -392,6 +408,85 @@ Each step in the GuidedForm stepper displays its title below the numbered indica
 ## Requirements
 
 - Vue 3.4 or higher
+
+## Provider-agnostic runtime
+
+Passing a `manifest` (or a `loadManifest`) switches the form onto a
+provider-agnostic path. The manifest describes providers and the databases they
+expose, and each database generates its fields from a declarative schema, so a
+host adds a corpus without forking the package. See
+[`docs/runtime-configurable-legal-search-builder.md`](docs/runtime-configurable-legal-search-builder.md).
+
+The form still never reaches a provider. It calls the `adapter` you mount —
+normally a thin client for **your** server, which is where a provider credential
+(e.g. Legal Data Hunter's OAuth token) lives and where an MCP bridge runs.
+
+```vue
+<template>
+  <LegalDocsForm
+    :manifest="manifest"
+    :adapter="adapter"
+    initial-provider="ldh"
+    @provider-change="onProvider"
+    @database-change="onDatabase"
+    @operation-error="onOperationError"
+  />
+</template>
+
+<script setup>
+import { LegalDocsForm, useLegalSearchRuntime } from 'vue-legal-query-builder'
+
+const manifest = { schemaVersion: '3', providers: [/* … */], databases: [/* … */] }
+
+// A thin client for your own server. No credential ever reaches this file.
+const adapter = {
+  search: (request) =>
+    fetch('/api/legal/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }).then((r) => r.json()),
+  discoverCountries: (request) => fetch(`/api/legal/countries?...`).then((r) => r.json()),
+  discoverSources: (request) => fetch(`/api/legal/sources?...`).then((r) => r.json()),
+  getFilters: (request) => fetch(`/api/legal/sources/${request.source}/filters`).then((r) => r.json()),
+}
+</script>
+```
+
+### What your server must do
+
+| Responsibility | Why |
+|---|---|
+| Authenticate with the provider | The credential stays server-side |
+| Hold MCP OAuth/token state | The browser never sees a token |
+| Invoke the provider's tools | MCP/HTTP calls happen off the page |
+| Validate the request body | The page is untrusted input |
+| Allowlist providers and tools | A compromised page cannot widen scope |
+| Normalize provider responses to `NormalizedSearchResult` etc. | One shape for the UI |
+| Map failures to `ProviderOperationError` codes | Stable errors, no transport details leaked |
+
+### Driving the form in code
+
+`useLegalSearchRuntime` is the composable the form uses internally; it is also
+exported so a host (or a component inside the form's tree) can drive the runtime
+directly — switching provider/database, reading the visible fields, validating,
+or building the request:
+
+```ts
+import { useLegalSearchRuntime } from 'vue-legal-query-builder'
+
+const runtime = useLegalSearchRuntime({ manifest, adapter })
+await runtime.load()               // resolve the manifest
+runtime.setDatabase('legislation') // switch corpus; state is kept per database
+runtime.setValue('query', 'GDPR')
+runtime.validate()                 // { valid, missing, errors }
+runtime.buildRequest()             // { provider, database, params }
+await runtime.search()             // calls adapter.search
+```
+
+Field layout, dependency gating, validation and param collection are pure
+functions in the same module and are exported too (`resolveVisibleFields`,
+`validateFields`, `collectParams`, `defaultFieldValues`, `moveField`, …).
 
 ## License
 
