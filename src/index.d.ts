@@ -257,12 +257,18 @@ export declare function collectParams(
   fields: FieldDescriptor[],
   values: Record<string, unknown>,
 ): Record<string, unknown>;
-/** Which field key a provider filter's options belong to (plural → singular). */
-export declare const FILTER_FIELD_KEYS: Record<string, string>;
-/** Fills each field's `options` from the provider's discovered filters. */
+/** Which field key a discovery answer's options belong to (plural → singular). */
+export declare const DISCOVERY_FIELD_KEYS: Record<string, string>;
+/** The discovery answers that can seed a field's option list. */
+export interface DiscoveryInputs {
+  filters?: ProviderFilterSet;
+  countries?: DiscoveryOption[];
+  sources?: DiscoveryOption[];
+}
+/** Fills each field's `options` from what the provider has discovered. */
 export declare function mergeFieldOptions(
   fields: FieldDescriptor[],
-  filters: ProviderFilterSet | undefined,
+  discovery: DiscoveryInputs | undefined,
 ): FieldDescriptor[];
 export declare function databasesForProvider(
   databases: LegalDatabaseDescriptor[],
@@ -436,6 +442,111 @@ export declare const RankedList: DefineComponent<{ result: unknown }, {}, any>;
 
 
 export { DocType } from "legal-docs-types";
+
+// ---------------------------------------------------------------------------
+// Legal Data Hunter
+// ---------------------------------------------------------------------------
+
+export declare const LEGAL_DATA_HUNTER_PROVIDER_ID: "ldh";
+export declare const LEGAL_DATA_HUNTER_NAMESPACES: readonly ["case_law", "legislation", "doctrine"];
+export type LegalDataHunterNamespace = "case_law" | "legislation" | "doctrine";
+export type LegalDataHunterOperation =
+  | "search"
+  | "document"
+  | "resolve"
+  | "countries"
+  | "sources"
+  | "filters"
+  | "report-issue";
+
+/** The manifest a form renders for Legal Data Hunter. */
+export declare const legalDataHunterManifest: QueryBuilderManifestV3;
+/** The namespace a database maps to, when the manifest names one. */
+export declare function namespaceForDatabase(
+  manifest: QueryBuilderManifestV3,
+  databaseId: string,
+): string | undefined;
+
+export interface LegalDataHunterSearchArgs {
+  query: string;
+  namespace?: string;
+  top_k?: number;
+  alpha?: number;
+  country?: string[];
+  source?: string[];
+  court?: string;
+  court_tier?: number;
+  jurisdiction?: string;
+  subdivision?: string;
+  language?: string;
+  date_start?: string;
+  date_end?: string;
+}
+export interface LegalDataHunterResolveArgs {
+  reference: string;
+  hint_country?: string;
+  hint_type?: string;
+}
+export interface LegalDataHunterIssueArgs {
+  source: string;
+  issue_type: SourceIssueType;
+  description?: string;
+}
+export interface LegalDataHunterContext {
+  provider: string;
+  database: string;
+}
+
+export declare function toLegalDataHunterSearchArgs(
+  request: ProviderSearchRequest,
+): LegalDataHunterSearchArgs;
+export declare function toLegalDataHunterResolveArgs(input: {
+  reference: string;
+  hintCountry?: string;
+  hintType?: string;
+}): LegalDataHunterResolveArgs;
+export declare function toLegalDataHunterIssueArgs(input: {
+  source: string;
+  issueType: SourceIssueType;
+  description?: string;
+}): LegalDataHunterIssueArgs;
+
+export declare function normalizeLegalDataHunterHit(
+  raw: unknown,
+  context: LegalDataHunterContext,
+): NormalizedSearchHit;
+export declare function normalizeLegalDataHunterSearch(
+  raw: unknown,
+  context: LegalDataHunterContext,
+): NormalizedSearchResult;
+export declare function normalizeLegalDataHunterDocument(
+  raw: unknown,
+  context: LegalDataHunterContext,
+): NormalizedLegalDocument;
+export declare function normalizeLegalDataHunterCountries(raw: unknown): DiscoveryOption[];
+export declare function normalizeLegalDataHunterSources(raw: unknown): DiscoveryOption[];
+export declare function normalizeLegalDataHunterFilters(
+  raw: unknown,
+  source: string,
+): ProviderFilterSet;
+export declare function normalizeLegalDataHunterResolvedReference(
+  raw: unknown,
+  context: LegalDataHunterContext & { reference: string },
+): ResolvedLegalReference;
+
+export interface LegalDataHunterAdapterOptions {
+  /** Sends one operation to the host's server-side bridge. No HTTP here. */
+  call(
+    operation: LegalDataHunterOperation,
+    payload: Record<string, unknown>,
+  ): Promise<unknown>;
+  manifest?: QueryBuilderManifestV3;
+}
+/** Maps the generic shapes onto Legal Data Hunter's, using the host's transport. */
+export declare function createLegalDataHunterAdapter(
+  options: LegalDataHunterAdapterOptions,
+): LegalSearchAdapter;
+
 
 
 export declare const VueLegalQueryBuilderPlugin: Plugin;

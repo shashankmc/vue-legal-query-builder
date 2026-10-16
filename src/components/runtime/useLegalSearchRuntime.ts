@@ -30,6 +30,7 @@ import {
   databasesForProvider,
   defaultDatabaseForProvider,
   defaultFieldValues,
+  DISCOVERY_FIELD_KEYS,
   filterAdvanced,
   isUserConfigurable,
   mergeFieldOptions,
@@ -139,8 +140,26 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
   )
 
   const activeFields = computed(() =>
-    mergeFieldOptions(activeDatabase.value?.fields ?? [], discovery.filters),
+    mergeFieldOptions(activeDatabase.value?.fields ?? [], {
+      filters: discovery.filters,
+      countries: discovery.countries,
+      sources: discovery.sources,
+    }),
   )
+
+  /** The field key the discovery country/source pre-fills, when declared. */
+  const countryFieldKey = computed(() => DISCOVERY_FIELD_KEYS.countries)
+  const sourceFieldKey = computed(() => DISCOVERY_FIELD_KEYS.sources)
+
+  function prefillDiscoveryField(fieldKey: string, value: string | undefined): void {
+    if (!activeFields.value.some((field) => field.key === fieldKey)) return
+    const state = stateFor()
+    if (value === undefined) {
+      if (fieldKey in state.values) state.values[fieldKey] = []
+      return
+    }
+    state.values[fieldKey] = [value]
+  }
 
   function stateKey(provider: string | undefined, database: string | undefined): string {
     return `${provider ?? ''}::${database ?? ''}`
@@ -363,13 +382,16 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
 
   /**
    * Picks the country whose sources to offer. A new country invalidates the
-   * source chosen under the old one, and reloads the source list.
+   * source chosen under the old one, reloads the source list, and pre-fills the
+   * form's matching country field so what will be sent is visible.
    */
   function setDiscoveryCountry(code: string | undefined): void {
     discoveryCountry.value = code
     discoverySource.value = undefined
     discovery.sources = []
     discovery.filters = undefined
+    prefillDiscoveryField(countryFieldKey.value, code)
+    prefillDiscoveryField(sourceFieldKey.value, undefined)
     if (code) void discoverSources(code)
     else discoverySequence += 1
   }
@@ -378,6 +400,7 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
   function setDiscoverySource(id: string | undefined): void {
     discoverySource.value = id
     discovery.filters = undefined
+    prefillDiscoveryField(sourceFieldKey.value, id)
     if (id) void loadFilters(id)
   }
 

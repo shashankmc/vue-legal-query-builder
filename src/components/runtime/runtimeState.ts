@@ -357,12 +357,15 @@ export function defaultProviderFor(
 }
 
 /**
- * Which field key a provider filter's options belong to. A provider reports
- * filters under plural names (`courts`); a form field names the singular key
- * (`court`). Keeping the convention here means a manifest author only has to
- * name the field to have its options filled from discovery.
+ * Which field key a discovery answer's options belong to. A provider reports
+ * filters under plural names (`courts`) and a form field names the singular key
+ * (`court`); countries and sources follow the same shape. Keeping the convention
+ * here means a manifest author only has to name the field to have its options
+ * filled from discovery.
  */
-export const FILTER_FIELD_KEYS: Record<string, string> = {
+export const DISCOVERY_FIELD_KEYS: Record<string, string> = {
+  countries: 'country',
+  sources: 'source',
   courts: 'court',
   jurisdictions: 'jurisdiction',
   chambers: 'chamber',
@@ -370,6 +373,13 @@ export const FILTER_FIELD_KEYS: Record<string, string> = {
   languages: 'language',
   courtTiers: 'courtTier',
   subdivisions: 'subdivision',
+}
+
+/** The discovery answers that can seed a field's option list. */
+export interface DiscoveryInputs {
+  filters?: ProviderFilterSet
+  countries?: DiscoveryOption[]
+  sources?: DiscoveryOption[]
 }
 
 function toFieldOptions(options: DiscoveryOption[]): { value: string; label: string }[] {
@@ -380,28 +390,35 @@ function toFieldOptions(options: DiscoveryOption[]): { value: string; label: str
 }
 
 /**
- * Fills each field's `options` from the provider's discovered filters, so a
- * `court` field offers only the courts the chosen source actually has. Discovered
- * options win over any the manifest declared statically.
+ * Fills each field's `options` from what the provider has discovered, so a
+ * `court` field offers only the courts the chosen source actually has and a
+ * `country` field offers only the countries that exist. Discovered options win
+ * over any the manifest declared statically.
  */
 export function mergeFieldOptions(
   fields: FieldDescriptor[],
-  filters: ProviderFilterSet | undefined,
+  discovery: DiscoveryInputs | undefined,
 ): FieldDescriptor[] {
-  if (!filters) return fields
+  if (!discovery) return fields
 
-  const discovered: Record<string, { value: string; label: string }[]> = {}
-  for (const [filterName, fieldKey] of Object.entries(FILTER_FIELD_KEYS)) {
-    const options = (filters as Record<string, unknown>)[filterName]
-    if (Array.isArray(options) && options.length > 0) {
-      discovered[fieldKey] = toFieldOptions(options as DiscoveryOption[])
-    }
+  const byFieldKey: Record<string, DiscoveryOption[]> = {}
+  const collect = (name: string, options: DiscoveryOption[] | undefined) => {
+    const fieldKey = DISCOVERY_FIELD_KEYS[name]
+    if (fieldKey && options && options.length > 0) byFieldKey[fieldKey] = options
   }
 
-  if (Object.keys(discovered).length === 0) return fields
+  for (const name of Object.keys(DISCOVERY_FIELD_KEYS)) {
+    collect(name, (discovery.filters as Record<string, unknown> | undefined)?.[name] as
+      | DiscoveryOption[]
+      | undefined)
+  }
+  collect('countries', discovery.countries)
+  collect('sources', discovery.sources)
+
+  if (Object.keys(byFieldKey).length === 0) return fields
 
   return fields.map((field) => {
-    const options = discovered[field.key]
-    return options ? { ...field, options } : field
+    const options = byFieldKey[field.key]
+    return options ? { ...field, options: toFieldOptions(options) } : field
   })
 }

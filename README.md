@@ -542,6 +542,63 @@ never blocked by a field they cannot see:
 A boolean field is answered by **either** boolean, so a required boolean can be
 answered "no" — the case the older helper got wrong.
 
+## Legal Data Hunter
+
+Legal Data Hunter is the first provider we ship a description for. Three things
+come with it, all pure:
+
+```ts
+import {
+  legalDataHunterManifest,     // the manifest a form renders
+  createLegalDataHunterAdapter // request/response mapping + your transport
+} from 'vue-legal-query-builder'
+```
+
+`legalDataHunterManifest` declares the provider, its three corpora (case law,
+legislation, doctrine), each corpus's fields, and the credential requirement.
+Point `manifest` at it and the form renders itself.
+
+`createLegalDataHunterAdapter` maps the generic shapes onto the provider's and
+back, and takes **your** transport — it has no HTTP client and no key:
+
+```ts
+const adapter = createLegalDataHunterAdapter({
+  // The host's server-side bridge. This is where the LDH key lives.
+  async call(operation, payload) {
+    const response = await fetch(`/api/ldh/${operation}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!response.ok) throw new Error(await response.text())
+    return response.json()
+  },
+})
+```
+
+### What the mapping does
+
+- **Request**: `courtTier` becomes `court_tier` and is sent as a number; the
+  `namespace` comes from the chosen database, not from the form; empty strings,
+  empty lists and absent values are dropped rather than sent blank.
+- **Protocol**: the arguments are emitted in **MCP** shape (`query`,
+  `top_k`, …). The REST endpoint is the same set with `q` where this has
+  `query` — that single rename belongs to the bridge, not to the form. REST
+  also honours `court`, which the MCP `search` tool does not take.
+- **Response**: hits become `NormalizedSearchHit`, with the provider's
+  source-specific fields (`court`, `courtTier`, `ecli`, `caseNumber`, …) kept in
+  `metadata` and the untouched payload in `raw`. Missing full text is reported
+  as a warning rather than a failure.
+- **Discovery**: `discoverCountries`, `discoverSources` and `getFilters`
+  normalize the provider's snake_case answers (`decision_types`, `court_tiers`)
+  onto `ProviderFilterSet`, which then seeds the form's option lists.
+- **Errors**: whatever `call` throws propagates, and the runtime wraps it into a
+  `ProviderOperationError` with a stable code.
+
+The demo wires exactly this to an in-memory `call` in
+[`demo/runtimeProvider.ts`](demo/runtimeProvider.ts) — swap `call` for the
+`fetch` above and it is talking to a real bridge.
+
 ## Requirements
 
 - Vue 3.4 or higher
@@ -636,8 +693,10 @@ actually has.
 The provider reports filters under plural names and the field names the singular
 key, matched by a small published convention:
 
-| Provider filter | Field key |
+| Discovery answer | Field key |
 |---|---|
+| `countries` | `country` |
+| `sources` | `source` |
 | `courts` | `court` |
 | `jurisdictions` | `jurisdiction` |
 | `chambers` | `chamber` |
@@ -646,9 +705,11 @@ key, matched by a small published convention:
 | `courtTiers` | `courtTier` |
 | `subdivisions` | `subdivision` |
 
-The map is exported as `FILTER_FIELD_KEYS`, and `mergeFieldOptions(fields,
-filters)` applies it if you want to drive it yourself. In-flight discovery calls
-are guarded, so a slow reply cannot overwrite a newer selection.
+The map is exported as `DISCOVERY_FIELD_KEYS`, and `mergeFieldOptions(fields,
+{ filters, countries, sources })` applies it if you want to drive it yourself.
+Choosing a country or a source also **pre-fills** the matching field, so what
+will be sent is visible in the form rather than hidden in the picker. In-flight
+discovery calls are guarded, so a slow reply cannot overwrite a newer selection.
 
 ## License
 

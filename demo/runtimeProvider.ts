@@ -1,59 +1,22 @@
-// A runtime provider for the demo: a v3 manifest plus an in-memory adapter.
+// A runtime provider for the demo.
 //
-// The real package never calls a provider, and neither does the demo. This
-// stands in for the server-side bridge a real host would run — the same shape
-// of calls, kept in memory so the demo works with no token and no network.
+// The manifest and the request/response mapping come from the package itself
+// (`legalDataHunterManifest`, `createLegalDataHunterAdapter`); only the
+// transport is local. That is the point: a real host swaps `call` for a fetch to
+// its own server, which holds the key — nothing else here changes.
 
-import type {
-  DiscoveryOption,
-  LegalSearchAdapter,
-  QueryBuilderManifestV3,
+import {
+  createLegalDataHunterAdapter,
+  legalDataHunterManifest,
+  type LegalDataHunterOperation,
+  type QueryBuilderManifestV3,
 } from '../src'
 
+/** The shipped LDH manifest, plus two providers the demo wants to show. */
 export const runtimeManifest: QueryBuilderManifestV3 = {
-  schemaVersion: '3',
-  defaultProvider: 'ldh',
-  defaultDatabase: 'case-law',
+  ...legalDataHunterManifest,
   providers: [
-    {
-      id: 'ldh',
-      label: 'Legal Data Hunter',
-      type: 'legal-data-hunter',
-      description: '38M+ documents across 230+ jurisdictions.',
-      defaultDatabase: 'case-law',
-      capabilities: {
-        operations: [
-          'search',
-          'getDocument',
-          'resolveReference',
-          'discoverCountries',
-          'discoverSources',
-          'getFilters',
-        ],
-        supportsDiscovery: true,
-        supportsFullText: true,
-        supportsPagination: true,
-      },
-      // The credential is DECLARED, never carried. A host (e.g. legal-blocks)
-      // reads this to render the field and to write credentials.json / an env
-      // var; the value is only ever used by the server-side bridge.
-      methods: [
-        {
-          id: 'search',
-          label: 'Hybrid semantic + keyword search',
-          dependencies: [
-            {
-              id: 'ldh-key',
-              label: 'Legal Data Hunter API key',
-              kind: 'credential',
-              configKeys: ['LDH_KEY'],
-              description:
-                'A token from your Legal Data Hunter account page. An environment variable wins over a stored value.',
-            },
-          ],
-        },
-      ],
-    },
+    ...(legalDataHunterManifest.providers ?? []),
     {
       id: 'caselawexplorer',
       label: 'Case Law Explorer',
@@ -69,242 +32,107 @@ export const runtimeManifest: QueryBuilderManifestV3 = {
       unavailableReason: 'No backing endpoint yet.',
     },
   ],
-  databases: [
-    {
-      id: 'case-law',
-      label: 'Case law',
-      provider: 'ldh',
-      kind: 'case-law',
-      description: 'Court decisions, supreme to first instance.',
-      namespaces: ['case_law'],
-      defaultResultView: { kind: 'ranked-list' },
-      fields: [
-        { key: 'query', control: 'text', label: 'Query', required: true, minLength: 3, maxLength: 200, placeholder: 'e.g. droit à l oubli' },
-        {
-          key: 'country',
-          control: 'multiselect',
-          label: 'Countries',
-          userConfigurable: true,
-          options: [
-            { value: 'FR', label: 'France' },
-            { value: 'DE', label: 'Germany' },
-            { value: 'EU', label: 'European Union' },
-          ],
-        },
-        {
-          key: 'court',
-          control: 'remote-select',
-          label: 'Court',
-          advanced: true,
-          userConfigurable: true,
-          description: 'Filled from the chosen source.',
-        },
-        {
-          key: 'courtTier',
-          control: 'select',
-          label: 'Court tier',
-          advanced: true,
-          userConfigurable: true,
-          options: [
-            { value: '1', label: 'Supreme' },
-            { value: '2', label: 'Appellate' },
-            { value: '3', label: 'First instance' },
-          ],
-        },
-        {
-          key: 'language',
-          control: 'select',
-          label: 'Language',
-          advanced: true,
-          userConfigurable: true,
-        },
-        { key: 'date_start', control: 'date', label: 'Decided from', advanced: true, userConfigurable: true },
-        { key: 'date_end', control: 'date', label: 'Decided to', advanced: true, userConfigurable: true },
-        { key: 'top_k', control: 'number', label: 'Results', min: 1, max: 100, defaultValue: 10 },
-        { key: 'alpha', control: 'range', label: 'Semantic weight', min: 0, max: 1, step: 0.1, defaultValue: 0.7 },
-      ],
-    },
-    {
-      id: 'legislation',
-      label: 'Legislation',
-      provider: 'ldh',
-      kind: 'legislation',
-      description: 'Codes, statutes, decrees and EU instruments.',
-      namespaces: ['legislation'],
-      defaultResultView: { kind: 'ranked-list' },
-      fields: [
-        { key: 'query', control: 'text', label: 'Query', required: true, placeholder: 'e.g. personal data protection' },
-        { key: 'country', control: 'multiselect', label: 'Countries', userConfigurable: true },
-        { key: 'document_type', control: 'select', label: 'Document type', advanced: true, userConfigurable: true },
-        { key: 'top_k', control: 'number', label: 'Results', min: 1, max: 100, defaultValue: 10 },
-        { key: 'alpha', control: 'range', label: 'Semantic weight', min: 0, max: 1, step: 0.1, defaultValue: 0.9 },
-      ],
-    },
-    {
-      id: 'doctrine',
-      label: 'Doctrine',
-      provider: 'ldh',
-      kind: 'doctrine',
-      description: 'Regulator decisions and official commentary.',
-      namespaces: ['doctrine'],
-      fields: [
-        { key: 'query', control: 'text', label: 'Query', required: true },
-        { key: 'country', control: 'multiselect', label: 'Countries', userConfigurable: true },
-      ],
-    },
-  ],
-  resultViews: [
-    { kind: 'ranked-list' },
-    { kind: 'table' },
-  ],
-  features: { allowFieldCustomization: true, showAdvancedFields: false },
 }
 
-const countries: DiscoveryOption[] = [
-  { value: 'FR', label: 'France', count: 1_850_000 },
-  { value: 'DE', label: 'Germany', count: 920_000 },
-  { value: 'EU', label: 'European Union', count: 245_000 },
+const countries = [
+  { code: 'FR', case_law_sources: 3, legislation_sources: 1, total_documents: 1_850_000 },
+  { code: 'DE', case_law_sources: 2, total_documents: 920_000 },
+  { code: 'EU', legislation_sources: 4, total_documents: 245_000 },
 ]
 
-const sourcesByCountry: Record<string, DiscoveryOption[]> = {
+const sourcesByCountry: Record<string, unknown[]> = {
   FR: [
-    { value: 'FR/Judilibre', label: 'Judilibre', description: 'Cour de cassation and cours d appel' },
-    { value: 'FR/CNIL', label: 'CNIL', description: 'Data-protection regulator' },
+    { source_id: 'FR/Judilibre', data_type: 'case_law', court_name: 'Cour de cassation', tier: 1, document_count: 520_000 },
+    { source_id: 'FR/CNIL', data_type: 'doctrine', court_name: 'CNIL', tier: 1, document_count: 12_000 },
   ],
-  DE: [{ value: 'DE/BGH', label: 'Bundesgerichtshof' }],
-  EU: [{ value: 'EU/EUR-Lex', label: 'EUR-Lex', description: 'Consolidated EU law' }],
+  DE: [{ source_id: 'DE/BGH', data_type: 'case_law', court_name: 'Bundesgerichtshof', tier: 1, document_count: 185_000 }],
+  EU: [{ source_id: 'EU/EUR-Lex', data_type: 'legislation', court_name: 'EUR-Lex', tier: 1, document_count: 245_000 }],
 }
 
-const filtersBySource: Record<string, Record<string, DiscoveryOption[]>> = {
+const filtersBySource: Record<string, unknown> = {
   'FR/Judilibre': {
-    courts: [
-      { value: 'Cour de cassation', label: 'Cour de cassation', count: 520_000 },
-      { value: "Cour d'appel", label: "Cour d'appel", count: 310_000 },
-    ],
-    languages: [{ value: 'fr', label: 'French' }],
+    courts: ['Cour de cassation', "Cour d'appel"],
+    languages: ['fr'],
+    decision_types: ['arrêt', 'ordonnance'],
+    court_tiers: [1, 2, 3],
+    date_range: { min: '1790-01-01', max: '2026-04-01' },
   },
-  'FR/CNIL': {
-    courts: [{ value: 'CNIL', label: 'CNIL', count: 12_000 }],
-    languages: [{ value: 'fr', label: 'French' }],
-  },
-  'DE/BGH': {
-    courts: [{ value: 'Bundesgerichtshof', label: 'Bundesgerichtshof', count: 185_000 }],
-    languages: [{ value: 'de', label: 'German' }],
-  },
-  'EU/EUR-Lex': {
-    languages: [
-      { value: 'en', label: 'English' },
-      { value: 'fr', label: 'French' },
-    ],
-  },
+  'FR/CNIL': { courts: ['CNIL'], languages: ['fr'] },
+  'DE/BGH': { courts: ['Bundesgerichtshof'], languages: ['de'] },
+  'EU/EUR-Lex': { languages: ['en', 'fr'] },
 }
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-/** Stands in for the host's server-side MCP bridge. */
-export const runtimeAdapter: LegalSearchAdapter = {
-  async discoverCountries() {
-    await delay(120)
-    return countries
-  },
+/**
+ * Stands in for the host's server-side MCP bridge: it takes an operation and
+ * returns the provider's raw payload. A real host would fetch here.
+ */
+async function call(operation: LegalDataHunterOperation, payload: Record<string, unknown>) {
+  await delay(160)
 
-  async discoverSources(request) {
-    await delay(120)
-    if (!request.country) return Object.values(sourcesByCountry).flat()
-    return sourcesByCountry[request.country] ?? []
-  },
+  switch (operation) {
+    case 'countries':
+      return { countries }
 
-  async getFilters(request) {
-    await delay(120)
-    return { source: request.source, ...(filtersBySource[request.source] ?? {}) }
-  },
-
-  async search(request) {
-    await delay(260)
-
-    if (request.params.query === 'boom') {
-      throw new Error('Provider said no.')
+    case 'sources': {
+      const country = payload.country as string | undefined
+      if (!country) return { sources: Object.values(sourcesByCountry).flat() }
+      return { sources: sourcesByCountry[country] ?? [] }
     }
 
-    const source = Object.values(sourcesByCountry).flat()[0].value
-    return {
-      provider: request.provider,
-      database: request.database,
-      query: String(request.params.query ?? ''),
-      totalHits: 2,
-      elapsedMs: 260,
-      hits: [
-        {
-          id: `${request.database}-001`,
-          provider: request.provider,
-          database: request.database,
-          source,
-          sourceId: 'JURITEXT000000001',
-          title: 'Sample decision 1',
-          snippet: '…factual summary…',
-          score: 0.94,
-          url: 'https://example.org/decision/1',
-          date: '2022-05-12',
-          country: 'FR',
-          language: 'fr',
-          metadata: { court: 'Cour de cassation', ecli: 'ECLI:FR:CCASS:2022:C100438' },
-        },
-        {
-          id: `${request.database}-002`,
-          provider: request.provider,
-          database: request.database,
-          source,
-          sourceId: 'JURITEXT000000002',
-          title: 'Sample decision 2',
-          snippet: '…legal reasoning…',
-          score: 0.87,
-          url: 'https://example.org/decision/2',
-          date: '2021-11-27',
-          country: 'FR',
-          language: 'fr',
-          metadata: { court: 'Cour de cassation' },
-        },
-      ],
-    }
-  },
+    case 'filters':
+      return filtersBySource[String(payload.source)] ?? {}
 
-  async getDocument(request) {
-    await delay(150)
-    return {
-      provider: request.provider,
-      database: request.database,
-      source: request.source,
-      sourceId: request.sourceId,
-      title: 'Sample decision',
-      text: 'LA COUR … [full text]',
-      metadata: {},
-    }
-  },
+    case 'search': {
+      const args = payload.args as Record<string, unknown>
+      if (args.query === 'boom') throw new Error('Provider said no.')
 
-  async resolveReference(request) {
-    await delay(150)
-    return [
-      {
-        reference: request.reference,
-        matchType: 'exact',
-        hits: [
+      const hits = [1, 2].map((index) => ({
+        source: 'FR/Judilibre',
+        source_id: `JURITEXT00000000${index}`,
+        score: 0.9 - index / 10,
+        title: `Sample decision ${index}`,
+        snippet: '…factual summary…',
+        url: `https://example.org/decision/${index}`,
+        country: (args.country as string[] | undefined)?.[0] ?? 'FR',
+        language: 'fr',
+        court: 'Cour de cassation',
+        court_tier: 1,
+        ecli: `ECLI:FR:CCASS:2022:C10043${index}`,
+        case_number: `21-12.53${index}`,
+        date: '2022-05-12',
+      }))
+
+      return { query: args.query, total_hits: hits.length, elapsed_ms: 160, hits }
+    }
+
+    case 'document':
+      return {
+        source: payload.source,
+        source_id: payload.source_id,
+        title: 'Sample decision',
+        text: 'LA COUR … [full text]',
+        url: 'https://example.org/decision/1',
+      }
+
+    case 'resolve':
+      return {
+        match_type: 'exact',
+        documents: [
           {
-            id: 'resolved-1',
-            provider: request.provider,
-            database: request.database,
             source: 'FR/Judilibre',
-            sourceId: 'JURITEXT000000001',
+            source_id: 'JURITEXT000000001',
             title: 'Sample decision',
-            metadata: {},
           },
         ],
-      },
-    ]
-  },
+      }
 
-  async reportSourceIssue() {
-    await delay(150)
-  },
+    default:
+      return {}
+  }
 }
+
+export const runtimeAdapter = createLegalDataHunterAdapter({ call })

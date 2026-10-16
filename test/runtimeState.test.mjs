@@ -43,7 +43,7 @@ const {
   defaultDatabaseForProvider,
   defaultProviderFor,
   mergeFieldOptions,
-  FILTER_FIELD_KEYS,
+  DISCOVERY_FIELD_KEYS,
 } = await loadRuntimeState()
 
 const field = (overrides) => ({ key: 'k', label: 'K', control: 'text', ...overrides })
@@ -290,16 +290,18 @@ test('mergeFieldOptions fills options from the discovered filters', () => {
     }),
   ]
 
-  const filters = {
-    source: 'FR/Judilibre',
-    courts: [
-      { value: 'Cour de cassation', label: 'Cour de cassation' },
-      { value: 'Cour d appel', label: "Cour d'appel", count: 12 },
-    ],
-    languages: [{ value: 'fr', label: 'French' }],
+  const discovery = {
+    filters: {
+      source: 'FR/Judilibre',
+      courts: [
+        { value: 'Cour de cassation', label: 'Cour de cassation' },
+        { value: 'Cour d appel', label: "Cour d'appel", count: 12 },
+      ],
+      languages: [{ value: 'fr', label: 'French' }],
+    },
   }
 
-  const merged = mergeFieldOptions(fields, filters)
+  const merged = mergeFieldOptions(fields, discovery)
   assert.deepEqual(merged[0].options, [
     { value: 'Cour de cassation', label: 'Cour de cassation' },
     { value: 'Cour d appel', label: "Cour d'appel (12)" },
@@ -311,14 +313,31 @@ test('mergeFieldOptions fills options from the discovered filters', () => {
   assert.deepEqual(merged[2].options, [{ value: 'fr', label: 'French' }])
 })
 
-test('mergeFieldOptions is a no-op without filters', () => {
-  const fields = [field({ key: 'court', control: 'remote-select' })]
-  assert.equal(mergeFieldOptions(fields, undefined), fields)
-  assert.equal(mergeFieldOptions(fields, { source: 'x' }), fields)
+test('mergeFieldOptions fills country and source fields from discovery', () => {
+  const fields = [
+    field({ key: 'country', control: 'multiselect' }),
+    field({ key: 'source', control: 'multiselect' }),
+  ]
+
+  const merged = mergeFieldOptions(fields, {
+    countries: [{ value: 'FR', label: 'France', count: 1_850_000 }],
+    sources: [{ value: 'FR/Judilibre', label: 'Judilibre' }],
+  })
+
+  assert.deepEqual(merged[0].options, [{ value: 'FR', label: 'France (1850000)' }])
+  assert.deepEqual(merged[1].options, [{ value: 'FR/Judilibre', label: 'Judilibre' }])
 })
 
-test('FILTER_FIELD_KEYS maps provider filters onto singular field keys', () => {
-  assert.equal(FILTER_FIELD_KEYS.courts, 'court')
-  assert.equal(FILTER_FIELD_KEYS.decisionTypes, 'decisionType')
-  assert.equal(FILTER_FIELD_KEYS.subdivisions, 'subdivision')
+test('mergeFieldOptions is a no-op without discovery', () => {
+  const fields = [field({ key: 'court', control: 'remote-select' })]
+  assert.equal(mergeFieldOptions(fields, undefined), fields)
+  assert.equal(mergeFieldOptions(fields, { filters: { source: 'x' } }), fields)
+})
+
+test('DISCOVERY_FIELD_KEYS maps provider answers onto singular field keys', () => {
+  assert.equal(DISCOVERY_FIELD_KEYS.courts, 'court')
+  assert.equal(DISCOVERY_FIELD_KEYS.countries, 'country')
+  assert.equal(DISCOVERY_FIELD_KEYS.sources, 'source')
+  assert.equal(DISCOVERY_FIELD_KEYS.decisionTypes, 'decisionType')
+  assert.equal(DISCOVERY_FIELD_KEYS.subdivisions, 'subdivision')
 })

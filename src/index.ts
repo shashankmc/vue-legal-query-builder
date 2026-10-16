@@ -71,7 +71,7 @@ export {
   filterAdvanced,
   collectParams,
   mergeFieldOptions,
-  FILTER_FIELD_KEYS,
+  DISCOVERY_FIELD_KEYS,
   databasesForProvider,
   providerForDatabase,
   defaultDatabaseForProvider,
@@ -79,6 +79,36 @@ export {
   EMPTY_FIELD_LAYOUT,
 } from "./components/runtime/runtimeState";
 export type { FieldLayout, FieldValidation } from "./components/runtime/runtimeState";
+
+// Legal Data Hunter, described once: the manifest a form renders, the mapping
+// onto the provider's `search` arguments, and the normalization of its
+// responses. Pure — a host supplies the transport via the adapter's `call`.
+export {
+  LEGAL_DATA_HUNTER_PROVIDER_ID,
+  LEGAL_DATA_HUNTER_NAMESPACES,
+  legalDataHunterManifest,
+  namespaceForDatabase,
+  toLegalDataHunterSearchArgs,
+  toLegalDataHunterResolveArgs,
+  toLegalDataHunterIssueArgs,
+  normalizeLegalDataHunterHit,
+  normalizeLegalDataHunterSearch,
+  normalizeLegalDataHunterDocument,
+  normalizeLegalDataHunterCountries,
+  normalizeLegalDataHunterSources,
+  normalizeLegalDataHunterFilters,
+  normalizeLegalDataHunterResolvedReference,
+  createLegalDataHunterAdapter,
+} from "./providers/legalDataHunter";
+export type {
+  LegalDataHunterOperation,
+  LegalDataHunterNamespace,
+  LegalDataHunterSearchArgs,
+  LegalDataHunterResolveArgs,
+  LegalDataHunterIssueArgs,
+  LegalDataHunterContext,
+  LegalDataHunterAdapterOptions,
+} from "./providers/legalDataHunter";
 
 // The declarative dataset field schema: a generic, app-agnostic provisions
 // dataset plus the pure collect/validate helpers a host can reuse.
