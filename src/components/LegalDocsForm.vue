@@ -67,15 +67,25 @@
                 :result-view="activeResultView" :loading="loading" @load-more="handleLoadMore" />
 
             <slot v-else name="results" :result="lastResult" :dataset="activeDataset"
-                :result-view="activeResultView">
+                :result-view="activeResultView" :open-document="handleOpenDocument">
                 <RankedList v-if="activeResultView?.kind === 'ranked-list'" :result="lastResult"
-                    :loading="loading" @load-more="handleLoadMore" />
+                    :loading="loading" :can-open-document="canOpenDocument" @load-more="handleLoadMore"
+                    @open-document="handleOpenDocument" />
                 <pre v-else-if="showRawResult" class="results-raw">{{ formattedRawResult }}</pre>
                 <p v-else class="results-unsupported">
                     No view is registered for result kind "{{ activeResultView?.kind }}".
                 </p>
             </slot>
         </section>
+
+        <RuntimeDocumentPanel v-if="runtime.activeDocument.value" :document="runtime.activeDocument.value"
+            @close="runtime.closeDocument()" />
+
+        <p v-if="runtime.documentError.value" class="results-unsupported" role="alert">
+            {{ runtime.documentError.value.message }}
+        </p>
+
+        <RuntimeResolvePanel v-if="canResolve" @open-document="handleOpenDocument" />
     </div>
 </template>
 
@@ -103,6 +113,9 @@ import DatasetFieldsForm from './DatasetFieldsForm.vue'
 import RankedList from './RankedList.vue'
 import RuntimeSelector from './runtime/RuntimeSelector.vue'
 import RuntimeFieldsForm from './runtime/RuntimeFieldsForm.vue'
+import RuntimeDocumentPanel from './runtime/RuntimeDocumentPanel.vue'
+import RuntimeResolvePanel from './runtime/RuntimeResolvePanel.vue'
+import type { ResultEntry } from './resultEntries'
 
 const props = withDefaults(defineProps<LegalDocsFormProps>(), {
     type: FormType.FREE
@@ -280,6 +293,27 @@ const handleLoadMore = async () => {
     } catch (err: any) {
         error.value = err.message || 'An error occurred'
         emit('operation-error', 'searchMore', err)
+        emit('error', err)
+    }
+}
+
+// A result entry is only actionable when the provider and adapter both offer
+// document retrieval — never the other way round.
+const canOpenDocument = computed(
+    () => runtime.ready.value && runtime.canUse('getDocument'),
+)
+const canResolve = computed(
+    () => runtime.ready.value && runtime.canUse('resolveReference'),
+)
+
+const handleOpenDocument = async (entry: ResultEntry) => {
+    if (!canOpenDocument.value || !entry.source || !entry.sourceId) return
+    emit('operation-start', 'getDocument', entry)
+    try {
+        const document = await runtime.loadDocument(entry.source, entry.sourceId)
+        if (document) emit('operation-success', 'getDocument', document)
+    } catch (err: any) {
+        emit('operation-error', 'getDocument', err)
         emit('error', err)
     }
 }

@@ -125,6 +125,7 @@
           <tr><td>Provider runtime (manifest + adapter)</td><td>Provider runtime = Legal Data Hunter</td><td class="new">new seam</td></tr>
           <tr><td>Runtime discovery (country → source → filters)</td><td>Provider runtime = Legal Data Hunter</td><td class="new">new seam</td></tr>
           <tr><td>Pluggable result view (host registry)</td><td>Register a custom result view</td><td class="new">new seam</td></tr>
+          <tr><td>Document retrieval, citation resolve, issue report</td><td>Provider runtime = Legal Data Hunter</td><td class="new">new seam</td></tr>
         </tbody>
       </table>
     </section>

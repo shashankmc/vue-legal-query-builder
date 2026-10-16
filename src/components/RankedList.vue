@@ -35,6 +35,12 @@
                         </div>
                         <span class="ranked-score-num">{{ formatScore(entry.score) }}</span>
                     </div>
+
+                    <div v-if="canOpenDocument" class="ranked-actions">
+                        <button type="button" class="ranked-open" @click="emit('openDocument', entry)">
+                            View document
+                        </button>
+                    </div>
                 </div>
             </li>
 
@@ -58,9 +64,14 @@ import { formatScore, scorePercent, toResultEntries, type ResultEntry } from './
 const props = defineProps<{
     result: unknown
     loading?: boolean
+    /** Whether each result offers a "View document" action. */
+    canOpenDocument?: boolean
 }>()
 
-const emit = defineEmits<{ loadMore: [] }>()
+const emit = defineEmits<{
+    loadMore: []
+    openDocument: [entry: ResultEntry]
+}>()
 
 const shaped = computed(() => toResultEntries(props.result))
 const entries = computed(() => shaped.value.entries)
@@ -236,13 +247,23 @@ a.ranked-title:hover {
     justify-content: center;
 }
 
+.ranked-actions {
+    margin-top: 8px;
+}
+
+.ranked-open,
 .ranked-more button {
     border: 1px solid #d1d5db;
     background: #fff;
     border-radius: 6px;
-    padding: 6px 16px;
-    font-size: 13px;
+    padding: 4px 12px;
+    font-size: 12px;
     cursor: pointer;
+}
+
+.ranked-open:hover {
+    border-color: #3b82f6;
+    color: #2563eb;
 }
 
 .ranked-more button:disabled {

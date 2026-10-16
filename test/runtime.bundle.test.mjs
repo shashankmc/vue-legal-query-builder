@@ -27,7 +27,15 @@ const manifest = {
       type: 'legal-data-hunter',
       defaultDatabase: 'case-law',
       capabilities: {
-        operations: ['search', 'discoverCountries', 'discoverSources', 'getFilters'],
+        operations: [
+          'search',
+          'getDocument',
+          'resolveReference',
+          'reportSourceIssue',
+          'discoverCountries',
+          'discoverSources',
+          'getFilters',
+        ],
         supportsDiscovery: true,
       },
     },
@@ -92,6 +100,37 @@ function makeAdapter(overrides = {}) {
     async getFilters() {
       return { source: 'FR/Judilibre', courts: [{ value: 'Cour de cassation', label: 'Cour de cassation' }] }
     },
+    async getDocument(request) {
+      return {
+        provider: request.provider,
+        database: request.database,
+        source: request.source,
+        sourceId: request.sourceId,
+        title: 'Sample decision',
+        text: 'LA COUR …',
+        metadata: {},
+      }
+    },
+    async resolveReference(request) {
+      return [
+        {
+          reference: request.reference,
+          matchType: 'exact',
+          hits: [
+            {
+              id: 'resolved',
+              provider: request.provider,
+              database: request.database,
+              source: 'FR/Judilibre',
+              sourceId: 'A',
+              title: 'Resolved',
+              metadata: {},
+            },
+          ],
+        },
+      ]
+    },
+    async reportSourceIssue() {},
     ...overrides,
   }
 }
@@ -294,6 +333,72 @@ test('optional fields can be hidden, reordered and reset; required ones cannot',
   runtime.resetLayout()
   assert.deepEqual(runtime.activeLayout.value.hidden, [])
   assert.deepEqual(runtime.activeLayout.value.order, [])
+})
+
+test('documents, citations and issue reports are gated and cached', { skip }, async () => {
+  const { useLegalSearchRuntime } = await import(bundlePath)
+
+  let documentCalls = 0
+  const runtime = useLegalSearchRuntime({
+    manifest,
+    adapter: makeAdapter({
+      async getDocument(request) {
+        documentCalls += 1
+        return {
+          provider: request.provider,
+          database: request.database,
+          source: request.source,
+          sourceId: request.sourceId,
+          title: 'Sample decision',
+          text: 'LA COUR …',
+          metadata: {},
+        }
+      },
+    }),
+  })
+  await runtime.load()
+
+  // Gated on what the provider advertises AND the adapter implements.
+  assert.equal(runtime.canUse('getDocument'), true)
+  assert.equal(runtime.canUse('resolveReference'), true)
+  assert.equal(runtime.canUse('reportSourceIssue'), true)
+
+  const first = await runtime.loadDocument('FR/Judilibre', 'A')
+  assert.equal(first.text, 'LA COUR …')
+  assert.equal(runtime.activeDocument.value.source, 'FR/Judilibre')
+
+  // Published decisions do not change, so the second read is a cache hit.
+  await runtime.loadDocument('FR/Judilibre', 'A')
+  assert.equal(documentCalls, 1)
+
+  const resolved = await runtime.resolveReference({ reference: 'art. 6 code civil' })
+  assert.equal(resolved.matchType, 'exact')
+  assert.equal(resolved.hits.length, 1)
+
+  await runtime.reportSourceIssue({ source: 'FR/Judilibre', issueType: 'invalid_url' })
+  assert.equal(runtime.issue.reported, true)
+  assert.equal(runtime.issue.reporting, false)
+
+  runtime.closeDocument()
+  assert.equal(runtime.activeDocument.value, undefined)
+})
+
+test('an operation the adapter does not implement is not offered', { skip }, async () => {
+  const { useLegalSearchRuntime } = await import(bundlePath)
+
+  const bare = {
+    async search(request) {
+      return { provider: request.provider, database: request.database, hits: [] }
+    },
+  }
+  const runtime = useLegalSearchRuntime({ manifest, adapter: bare })
+  await runtime.load()
+
+  assert.equal(runtime.canUse('getDocument'), false)
+  assert.equal(runtime.canUse('resolveReference'), false)
+  assert.equal(runtime.canUse('reportSourceIssue'), false)
+  // Search is the one operation a provider must have.
+  assert.equal(runtime.canUse('search'), true)
 })
 
 test('a provider error passes through normalizeAdapterError untouched', { skip }, async () => {

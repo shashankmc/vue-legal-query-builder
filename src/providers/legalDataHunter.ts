@@ -70,6 +70,7 @@ export const legalDataHunterManifest: QueryBuilderManifestV3 = {
           'search',
           'getDocument',
           'resolveReference',
+          'reportSourceIssue',
           'discoverCountries',
           'discoverSources',
           'getFilters',

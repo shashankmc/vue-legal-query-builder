@@ -33,7 +33,6 @@ import type {
   ReferenceMatchType,
   SourceIssueType,
 } from "legal-retrieval-types";
-
 export type {
   DatasetDescriptor,
   FieldDescriptor,
@@ -364,6 +363,37 @@ export interface LegalSearchRuntime {
   /** Fetches the next page and appends it, when the provider offered a cursor. */
   searchMore(): Promise<NormalizedSearchResult | undefined>;
 
+  /** Whether the active provider says it can do this. Unknown means yes. */
+  supports(operation: ProviderOperation): boolean;
+  /** Whether the operation is both advertised and implemented by the adapter. */
+  canUse(operation: ProviderOperation): boolean;
+
+  /** The document currently open, if any. */
+  activeDocument: Ref<NormalizedLegalDocument | undefined>;
+  documentLoading: Ref<boolean>;
+  documentError: Ref<any>;
+  /** Documents fetched this session, keyed by source and id. */
+  documentCache: Record<string, NormalizedLegalDocument>;
+  /** Fetches one document, or returns the cached copy. */
+  loadDocument(source: string, sourceId: string): Promise<NormalizedLegalDocument | undefined>;
+  closeDocument(): void;
+
+  resolution: Ref<ResolvedLegalReference | undefined>;
+  resolveLoading: Ref<boolean>;
+  resolveError: Ref<any>;
+  resolveReference(input: {
+    reference: string;
+    hintCountry?: string;
+    hintType?: string;
+  }): Promise<ResolvedLegalReference | undefined>;
+
+  issue: { reporting: boolean; reported: boolean; error?: any };
+  reportSourceIssue(input: {
+    source: string;
+    issueType: SourceIssueType;
+    description?: string;
+  }): Promise<void>;
+
   discovery: RuntimeDiscoveryState;
   /** Country whose sources are offered, when the provider supports discovery. */
   discoveryCountry: Ref<string | undefined>;
@@ -439,7 +469,12 @@ export interface LegalDocsFormProps {
 export declare const LegalDocsForm: DefineComponent<LegalDocsFormProps, {}, any>;
 
 /** A simple ranked list for provisions-style results. */
-export declare const RankedList: DefineComponent<{ result: unknown }, {}, any>;
+export declare const RankedList: DefineComponent<{
+  result: unknown;
+  loading?: boolean;
+  /** Whether each result offers a "View document" action. */
+  canOpenDocument?: boolean;
+}, {}, any>;
 
 /** Host result views, keyed by `ResultViewRef.kind`. */
 export type ResultViewRegistry = Record<string, Component>;

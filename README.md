@@ -639,6 +639,35 @@ jurisdiction, date, language, ECLI, case and country the hit carries. It reports
 an empty set and any partial-result warning rather than looking broken, and
 offers **Load more** only when the provider returned a cursor.
 
+## Documents, citations and issue reports
+
+Three further operations ship with the runtime. Each is offered **only when the
+provider advertises it and the adapter implements it** — `canUse(operation)`,
+never the other way round. Nothing appears for a host that has not wired it up.
+
+```ts
+runtime.canUse('getDocument')       // provider says yes AND adapter has it
+runtime.loadDocument(source, id)    // cached in memory for the session
+runtime.resolveReference({ reference: 'art. 6 code civil', hintCountry: 'FR' })
+runtime.reportSourceIssue({ source, issueType: 'invalid_url', description })
+```
+
+- **Documents.** Every result in the built-in list offers *View document* when
+  it carries a source and an id. The document opens in a panel showing its text
+  and metadata, and says so plainly when the provider has no full text or
+  returned a truncated one. Published decisions do not change, so each document
+  is fetched once and kept for the session.
+- **Citations.** The *Resolve a citation* panel takes a loose reference with
+  optional country and type hints, and reports the match type — calling out
+  `ambiguous` when more than one document matched. Resolved hits render through
+  the same ranked view as search results, because a resolved reference is just a
+  hit with a match type.
+- **Issue reports.** Offered from an open document, and only when supported.
+  A report is a *write* with no undo, so it takes two steps — review, then
+  confirm — and names the source it will be sent against.
+
+Switching provider or database closes the document and clears the resolution.
+
 ## Requirements
 
 - Vue 3.4 or higher

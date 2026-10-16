@@ -14,12 +14,15 @@ import type {
   LegalDatabaseDescriptor,
   LegalSearchAdapter,
   LegalSearchProviderDescriptor,
+  NormalizedLegalDocument,
   NormalizedSearchResult,
   ProviderFilterSet,
   ProviderOperation,
   ProviderSearchRequest,
   QueryBuilderManifest,
+  ResolvedLegalReference,
   ResolvedLegalSearchConfig,
+  SourceIssueType,
 } from 'legal-retrieval-types'
 import {
   ProviderOperationError,
@@ -125,6 +128,23 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
   })
 
   let discoverySequence = 0
+
+  // Documents are immutable once published, so one fetched copy lasts the
+  // session — the same reasoning the provider itself caches case law on.
+  const documentCache = reactive<Record<string, NormalizedLegalDocument>>({})
+  const activeDocument = ref<NormalizedLegalDocument | undefined>(undefined)
+  const documentLoading = ref(false)
+  const documentError = ref<ProviderOperationError | undefined>(undefined)
+
+  const resolution = ref<ResolvedLegalReference | undefined>(undefined)
+  const resolveLoading = ref(false)
+  const resolveError = ref<ProviderOperationError | undefined>(undefined)
+
+  const issue = reactive({
+    reporting: false,
+    reported: false,
+    error: undefined as ProviderOperationError | undefined,
+  })
 
   const providers = computed<LegalSearchProviderDescriptor[]>(() => config.value?.providers ?? [])
   const databases = computed<LegalDatabaseDescriptor[]>(() => config.value?.databases ?? [])
@@ -263,6 +283,7 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
     if (!providers.value.some((provider) => provider.id === id)) return
     providerId.value = id
     databaseId.value = defaultDatabaseForProvider(providers.value, databases.value, id)
+    resetOperations()
     void refreshDiscovery()
   }
 
@@ -271,6 +292,7 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
     if (!database) return
     if (database.provider !== providerId.value) providerId.value = database.provider
     databaseId.value = id
+    resetOperations()
     void refreshDiscovery()
   }
 
@@ -300,6 +322,7 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
   }
 
   /** Clears the active database's answers, layout and last result. */
+  /** Clears the active database's answers, layout and last result. */
   function resetDatabaseState(): void {
     const state = stateFor()
     state.values = defaultFieldValues(activeDatabase.value?.fields ?? [])
@@ -307,6 +330,140 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
     state.result = undefined
     state.error = undefined
     state.validated = false
+    resetOperations()
+  }
+
+  // --- documents, citations and issue reports --------------------------------
+
+  /** Whether the active provider says it can do this. Unknown means yes. */
+  function supports(operation: ProviderOperation): boolean {
+    const operations = activeProvider.value?.capabilities?.operations
+    if (!operations || operations.length === 0) return true
+    return operations.includes(operation)
+  }
+
+  /**
+   * Whether an operation is both advertised by the provider and implemented by
+   * the adapter. This is what gates a control — never the other way round.
+   */
+  function canUse(operation: ProviderOperation): boolean {
+    const adapter = options.adapter as unknown as Record<string, unknown> | undefined
+    if (!adapter || typeof adapter[operation] !== 'function') return false
+    return supports(operation)
+  }
+
+  function resetOperations(): void {
+    activeDocument.value = undefined
+    documentError.value = undefined
+    resolution.value = undefined
+    resolveError.value = undefined
+    issue.reporting = false
+    issue.reported = false
+    issue.error = undefined
+  }
+
+  function documentKey(source: string, sourceId: string): string {
+    return `${source}::${sourceId}`
+  }
+
+  /**
+   * Fetches one document, or returns the copy already in memory. Cached for the
+   * session: published decisions do not change.
+   */
+  async function loadDocument(
+    source: string,
+    sourceId: string,
+  ): Promise<NormalizedLegalDocument | undefined> {
+    documentError.value = undefined
+
+    const adapter = options.adapter
+    if (!adapter?.getDocument || !providerId.value || !databaseId.value) return undefined
+
+    const key = documentKey(source, sourceId)
+    const cached = documentCache[key]
+    if (cached) {
+      activeDocument.value = cached
+      return cached
+    }
+
+    documentLoading.value = true
+    try {
+      const document = await adapter.getDocument({
+        provider: providerId.value,
+        database: databaseId.value,
+        source,
+        sourceId,
+      })
+      documentCache[key] = document
+      activeDocument.value = document
+      return document
+    } catch (error) {
+      documentError.value = normalizeAdapterError(error, 'getDocument', providerId.value)
+      throw documentError.value
+    } finally {
+      documentLoading.value = false
+    }
+  }
+
+  function closeDocument(): void {
+    activeDocument.value = undefined
+    documentError.value = undefined
+  }
+
+  /** Resolves a loose citation to the document(s) it names. */
+  async function resolveReference(input: {
+    reference: string
+    hintCountry?: string
+    hintType?: string
+  }): Promise<ResolvedLegalReference | undefined> {
+    resolveError.value = undefined
+
+    const adapter = options.adapter
+    if (!adapter?.resolveReference || !providerId.value || !databaseId.value) return undefined
+
+    resolveLoading.value = true
+    try {
+      const resolved = await adapter.resolveReference({
+        provider: providerId.value,
+        database: databaseId.value,
+        ...input,
+      })
+      resolution.value = resolved[0]
+      return resolution.value
+    } catch (error) {
+      resolveError.value = normalizeAdapterError(error, 'resolveReference', providerId.value)
+      throw resolveError.value
+    } finally {
+      resolveLoading.value = false
+    }
+  }
+
+  /** Reports a problem with a source. The caller confirms before calling this. */
+  async function reportSourceIssue(input: {
+    source: string
+    issueType: SourceIssueType
+    description?: string
+  }): Promise<void> {
+    issue.error = undefined
+    issue.reported = false
+
+    const adapter = options.adapter
+    if (!adapter?.reportSourceIssue || !providerId.value || !databaseId.value) return
+
+    issue.reporting = true
+    try {
+      await adapter.reportSourceIssue({
+        provider: providerId.value,
+        database: databaseId.value,
+        ...input,
+      })
+      issue.reported = true
+    } catch (error) {
+      issue.error = normalizeAdapterError(error, 'reportSourceIssue', providerId.value)
+      throw issue.error
+    } finally {
+      issue.reporting = false
+    }
   }
 
   function validate(): FieldValidation {
@@ -543,6 +700,22 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
     buildRequest,
     search,
     searchMore,
+
+    // documents, citations and issue reports
+    canUse,
+    supports,
+    activeDocument,
+    documentLoading,
+    documentError,
+    loadDocument,
+    closeDocument,
+    documentCache,
+    resolution,
+    resolveLoading,
+    resolveError,
+    resolveReference,
+    issue,
+    reportSourceIssue,
 
     // discovery
     discovery,
