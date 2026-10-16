@@ -51,6 +51,8 @@ const manifest = {
           key: 'court',
           control: 'remote-select',
           label: 'Court',
+          advanced: true,
+          userConfigurable: true,
           dependencies: [{ key: 'country', operator: 'truthy' }],
         },
       ],
@@ -257,6 +259,41 @@ test('discovery selection seeds the form options', { skip }, async () => {
   await flush()
   assert.equal(runtime.discoverySource.value, undefined)
   assert.equal(runtime.discovery.filters, undefined)
+})
+
+test('optional fields can be hidden, reordered and reset; required ones cannot', { skip }, async () => {
+  const { useLegalSearchRuntime } = await import(bundlePath)
+  const runtime = useLegalSearchRuntime({ manifest, adapter: makeAdapter() })
+  await runtime.load()
+
+  assert.equal(runtime.allowFieldCustomization.value, true)
+
+  // A required field is pinned by the provider.
+  runtime.toggleField('query', false)
+  assert.equal(runtime.activeLayout.value.hidden.includes('query'), false)
+
+  // An optional one hides, and leaves the rendered set.
+  runtime.toggleField('country', false)
+  assert.equal(runtime.activeLayout.value.hidden.includes('country'), true)
+  assert.ok(!runtime.visibleFields.value.some((f) => f.key === 'country'))
+
+  // Advanced fields stay off until asked for. `court` also depends on country,
+  // so give it a value first.
+  runtime.toggleField('country', true)
+  runtime.setValue('country', ['FR'])
+  assert.equal(runtime.showAdvancedFields.value, false)
+  assert.ok(!runtime.visibleFields.value.some((f) => f.key === 'court'))
+  runtime.setShowAdvanced(true)
+  assert.ok(runtime.visibleFields.value.some((f) => f.key === 'court'))
+
+  // Reordering moves the configurable fields among themselves.
+  runtime.moveField('country', 1)
+  assert.deepEqual(runtime.activeLayout.value.order, ['court', 'country'])
+
+  // Reset puts everything back.
+  runtime.resetLayout()
+  assert.deepEqual(runtime.activeLayout.value.hidden, [])
+  assert.deepEqual(runtime.activeLayout.value.order, [])
 })
 
 test('a provider error passes through normalizeAdapterError untouched', { skip }, async () => {

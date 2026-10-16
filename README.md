@@ -484,6 +484,64 @@ also accepts `Authorization: Bearer <key>`, and its REST API takes the same
 bearer token, so either transport works behind the bridge. (LDH's own guidance
 is REST for web apps and MCP for agents; the key path is identical.)
 
+### Tailoring the generated form
+
+When the manifest sets `features.allowFieldCustomization`, the form shows a
+**Customize fields** panel. A user can:
+
+- show or hide **optional** fields;
+- reorder them — moving a field only ever moves it past other optional fields;
+- reset the layout to the provider's default;
+- fold away the fields marked `advanced` behind a toggle.
+
+They **cannot** hide a required field, rename its key, weaken its validation,
+inject markup or a component, or touch transport or credentials. A required
+field is pinned by the provider contract, and the panel shows it as locked.
+
+Layout is per database and lives in memory only — switching databases keeps each
+one's answers and layout, and nothing is persisted. Hidden advanced fields still
+contribute their values and defaults to the query, so a fold-away `alpha` still
+reaches the provider.
+
+### Host field components
+
+`fieldComponents` registers your own components, keyed by
+`FieldDescriptor.block` (or `control`). Each is resolved in order:
+
+1. your component for `field.block`
+2. your component for `field.control`
+3. the built-in block named by `field.block`
+4. the generic renderer for `field.control`
+5. an honest "unsupported field" note
+
+```vue
+<LegalDocsForm
+  :manifest="manifest"
+  :adapter="adapter"
+  :field-components="{ CitationInput }"
+/>
+```
+
+A host component receives `field`, `modelValue`, `disabled` and `error`, and
+emits `update:modelValue`.
+
+### Validation
+
+Schema-driven, and checked against the fields actually on screen — a user is
+never blocked by a field they cannot see:
+
+| Rule | Fields |
+|---|---|
+| `required` | any |
+| `min` / `max` | `number`, `range`, and `date` (as ISO bounds) |
+| `minLength` / `maxLength` | `text`, `textarea` |
+| `minItems` / `maxItems` | `multiselect` and any `multiple` field |
+| option membership | fields declaring `options` |
+| `dependencies` | fields gated on a sibling's value |
+
+A boolean field is answered by **either** boolean, so a required boolean can be
+answered "no" — the case the older helper got wrong.
+
 ## Requirements
 
 - Vue 3.4 or higher

@@ -203,8 +203,8 @@ export interface FieldValidation {
 }
 
 /**
- * Validates the dependency-visible fields: required values plus numeric bounds
- * and option membership.
+ * Validates the dependency-visible fields: required values, numeric and date
+ * bounds, string length, option membership and multi-value cardinality.
  */
 export function validateFields(
   fields: FieldDescriptor[],
@@ -217,22 +217,49 @@ export function validateFields(
     if (!dependencySatisfied(field, values)) continue
 
     const value = values[field.key]
+    const filled = isFieldFilled(value, field.control)
 
-    if (field.required === true && !isFieldFilled(value, field.control)) {
+    if (field.required === true && !filled) {
       missing.push(field.key)
       errors[field.key] = 'This field is required.'
       continue
     }
 
+    if (!filled) continue
+
+    // Numeric bounds. A date control compares its ISO `YYYY-MM-DD` string,
+    // which sorts correctly as text.
     if (typeof value === 'number') {
       if (field.min !== undefined && value < field.min) {
         errors[field.key] = `Must be at least ${field.min}.`
       } else if (field.max !== undefined && value > field.max) {
         errors[field.key] = `Must be at most ${field.max}.`
       }
+    } else if (field.control === 'date' && typeof value === 'string') {
+      if (field.min !== undefined && value < String(field.min)) {
+        errors[field.key] = `Must be on or after ${field.min}.`
+      } else if (field.max !== undefined && value > String(field.max)) {
+        errors[field.key] = `Must be on or before ${field.max}.`
+      }
     }
 
-    if (field.options && field.options.length > 0 && isFieldFilled(value, field.control)) {
+    if (!errors[field.key] && typeof value === 'string') {
+      if (field.minLength !== undefined && value.trim().length < field.minLength) {
+        errors[field.key] = `Must be at least ${field.minLength} characters.`
+      } else if (field.maxLength !== undefined && value.length > field.maxLength) {
+        errors[field.key] = `Must be at most ${field.maxLength} characters.`
+      }
+    }
+
+    if (!errors[field.key] && Array.isArray(value)) {
+      if (field.minItems !== undefined && value.length < field.minItems) {
+        errors[field.key] = `Select at least ${field.minItems}.`
+      } else if (field.maxItems !== undefined && value.length > field.maxItems) {
+        errors[field.key] = `Select at most ${field.maxItems}.`
+      }
+    }
+
+    if (!errors[field.key] && field.options && field.options.length > 0) {
       const allowed = new Set(field.options.map((option) => option.value))
       const selected = Array.isArray(value) ? value : [value]
       for (const entry of selected) {
@@ -245,6 +272,19 @@ export function validateFields(
   }
 
   return { valid: missing.length === 0 && Object.keys(errors).length === 0, missing, errors }
+}
+
+/**
+ * Splits a field list by the advanced toggle. Advanced fields are the ones an
+ * operator tucks away, not ones the user may drop — they still contribute their
+ * values and defaults to the query.
+ */
+export function filterAdvanced(
+  fields: FieldDescriptor[],
+  showAdvanced: boolean,
+): FieldDescriptor[] {
+  if (showAdvanced) return fields
+  return fields.filter((field) => field.advanced !== true)
 }
 
 /**

@@ -30,6 +30,7 @@ import {
   databasesForProvider,
   defaultDatabaseForProvider,
   defaultFieldValues,
+  filterAdvanced,
   isUserConfigurable,
   mergeFieldOptions,
   moveField as moveFieldInLayout,
@@ -108,6 +109,9 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
   const discoveryCountry = ref<string | undefined>(undefined)
   const discoverySource = ref<string | undefined>(undefined)
 
+  // Whether advanced fields are on screen. Seeded from the manifest.
+  const showAdvancedFields = ref(false)
+
   // State is keyed per provider+cluster so switching providers or databases
   // never mixes one corpus's answers into another's.
   const states = reactive<Record<string, DatabaseFormState>>({})
@@ -165,7 +169,15 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
   const activeValues = computed(() => activeState.value.values)
   const activeLayout = computed(() => activeState.value.layout)
   const visibleFields = computed(() =>
-    resolveVisibleFields(activeFields.value, activeState.value.layout, activeState.value.values),
+    filterAdvanced(
+      resolveVisibleFields(activeFields.value, activeState.value.layout, activeState.value.values),
+      showAdvancedFields.value,
+    ),
+  )
+
+  /** Whether users may show/hide and reorder optional fields. */
+  const allowFieldCustomization = computed(
+    () => config.value?.features.allowFieldCustomization ?? false,
   )
 
   /** Present only when a manifest resolved; false keeps the legacy form path. */
@@ -200,6 +212,7 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
       databaseId.value = wantedDatabase
 
       configError.value = undefined
+      showAdvancedFields.value = resolved.features.showAdvancedFields
       stateFor()
       void refreshDiscovery()
     } catch (error) {
@@ -255,7 +268,6 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
     const state = stateFor()
     const field = activeFields.value.find((entry) => entry.key === key)
     if (!field || !isUserConfigurable(field)) return
-    if (visible) state.values[key] = state.values[key] ?? undefined
     state.layout = setFieldVisible(activeFields.value, state.layout, key, visible)
   }
 
@@ -281,7 +293,13 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
   function validate(): FieldValidation {
     const state = stateFor()
     state.validated = true
-    return validateFields(activeFields.value, state.values)
+    // Only the fields on screen: a user is never blocked by one they cannot see.
+    return validateFields(visibleFields.value, state.values)
+  }
+
+  /** Shows or hides the fields marked `advanced`. */
+  function setShowAdvanced(value: boolean): void {
+    showAdvancedFields.value = value
   }
 
   function buildRequest(cursor?: string): ProviderSearchRequest | undefined {
@@ -454,6 +472,9 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
     activeFields,
     visibleFields,
     hasDeclaredFields,
+    allowFieldCustomization,
+    showAdvancedFields,
+    setShowAdvanced,
     activeValues,
     activeLayout,
     activeState,

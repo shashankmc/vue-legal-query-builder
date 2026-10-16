@@ -36,6 +36,7 @@ const {
   setFieldVisible,
   moveField,
   validateFields,
+  filterAdvanced,
   collectParams,
   databasesForProvider,
   providerForDatabase,
@@ -199,6 +200,34 @@ test('validateFields skips a dependency-hidden field', () => {
   ]
   assert.equal(validateFields(fields, { country: [] }).valid, true)
   assert.equal(validateFields(fields, { country: ['FR'] }).valid, false)
+})
+
+test('validateFields enforces string length and multi-value cardinality', () => {
+  const text = field({ key: 'query', control: 'text', minLength: 3, maxLength: 10 })
+  assert.equal(validateFields([text], { query: 'ab' }).errors.query, 'Must be at least 3 characters.')
+  assert.equal(validateFields([text], { query: 'x'.repeat(11) }).errors.query, 'Must be at most 10 characters.')
+  assert.equal(validateFields([text], { query: 'abc' }).valid, true)
+
+  const multi = field({ key: 'country', control: 'multiselect', minItems: 1, maxItems: 2 })
+  assert.equal(validateFields([multi], { country: [] }).valid, true)
+  assert.equal(validateFields([multi], { country: ['FR'] }).valid, true)
+  assert.equal(validateFields([multi], { country: ['FR', 'DE', 'EU'] }).errors.country, 'Select at most 2.')
+})
+
+test('validateFields compares a date against its ISO bounds', () => {
+  const date = field({ key: 'date_start', control: 'date', min: '2000-01-01', max: '2025-12-31' })
+  assert.equal(validateFields([date], { date_start: '1999-12-31' }).errors.date_start, 'Must be on or after 2000-01-01.')
+  assert.equal(validateFields([date], { date_start: '2026-01-01' }).errors.date_start, 'Must be on or before 2025-12-31.')
+  assert.equal(validateFields([date], { date_start: '2020-06-01' }).valid, true)
+})
+
+test('filterAdvanced drops advanced fields unless asked', () => {
+  const fields = [
+    field({ key: 'query', control: 'text' }),
+    field({ key: 'court', control: 'text', advanced: true }),
+  ]
+  assert.deepEqual(filterAdvanced(fields, false).map((f) => f.key), ['query'])
+  assert.deepEqual(filterAdvanced(fields, true).map((f) => f.key), ['query', 'court'])
 })
 
 test('collectParams keeps declared, visible, filled fields only', () => {

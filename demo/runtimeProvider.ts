@@ -79,7 +79,7 @@ export const runtimeManifest: QueryBuilderManifestV3 = {
       namespaces: ['case_law'],
       defaultResultView: { kind: 'ranked-list' },
       fields: [
-        { key: 'query', control: 'text', label: 'Query', required: true, placeholder: 'e.g. droit à l oubli' },
+        { key: 'query', control: 'text', label: 'Query', required: true, minLength: 3, maxLength: 200, placeholder: 'e.g. droit à l oubli' },
         {
           key: 'country',
           control: 'multiselect',

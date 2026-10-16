@@ -10,7 +10,8 @@
         <RuntimeSelector v-if="runtime.ready.value" :runtime="runtime" />
 
         <RuntimeFieldsForm v-if="runtime.ready.value && runtime.hasDeclaredFields.value" :runtime="runtime"
-            :loading="loading" @submit="handleSubmit" @handleReset="handleReset" />
+            :loading="loading" :components="props.fieldComponents" @submit="handleSubmit"
+            @handleReset="handleReset" />
 
         <DatasetFieldsForm
             v-else-if="activeDataset && hasDeclaredFields(activeDataset)"

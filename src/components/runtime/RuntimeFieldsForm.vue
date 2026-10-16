@@ -1,12 +1,20 @@
 <template>
     <form class="runtime-fields-form" @submit.prevent="handleSubmit">
+        <div v-if="allowCustomization || hasAdvanced" class="runtime-fields-toolbar">
+            <button v-if="hasAdvanced" type="button" class="link-button"
+                @click="runtime.setShowAdvanced(!runtime.showAdvancedFields.value)">
+                {{ runtime.showAdvancedFields.value ? 'Hide advanced fields' : 'Show advanced fields' }}
+            </button>
+            <RuntimeFieldPanel v-if="allowCustomization" :runtime="runtime" />
+        </div>
+
         <p v-if="fields.length === 0" class="runtime-fields-empty">
             This database declares no fields yet.
         </p>
 
         <RuntimeField v-for="field in fields" :key="field.key" :field="field"
             :model-value="runtime.activeValues.value[field.key]" :disabled="loading"
-            :error="attempted ? validation.errors[field.key] : undefined"
+            :components="components" :error="attempted ? validation.errors[field.key] : undefined"
             @update:model-value="runtime.setValue(field.key, $event)" />
 
         <div class="form-actions">
@@ -22,15 +30,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, type Component } from 'vue'
 import { Search } from 'lucide-vue-next'
 import RuntimeField from './RuntimeField.vue'
+import RuntimeFieldPanel from './RuntimeFieldPanel.vue'
 import type { LegalSearchRuntime } from './useLegalSearchRuntime'
 import { validateFields } from './runtimeState'
 
 const props = defineProps<{
     runtime: LegalSearchRuntime
     loading: boolean
+    /** Host field components, keyed by `FieldDescriptor.block` (or `control`). */
+    components?: Record<string, Component>
 }>()
 
 const emit = defineEmits<{
@@ -43,9 +54,11 @@ const emit = defineEmits<{
 const attempted = ref(false)
 
 const fields = computed(() => props.runtime.visibleFields.value)
+const allowCustomization = computed(() => props.runtime.allowFieldCustomization.value)
+const hasAdvanced = computed(() => props.runtime.activeFields.value.some((field) => field.advanced === true))
 
 const validation = computed(() =>
-    validateFields(props.runtime.activeFields.value, props.runtime.activeValues.value),
+    validateFields(fields.value, props.runtime.activeValues.value),
 )
 
 function handleSubmit() {
@@ -69,6 +82,23 @@ function handleSubmit() {
     margin: 0;
     font-size: 13px;
     color: #6b7280;
+}
+
+.runtime-fields-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.link-button {
+    align-self: flex-start;
+    border: none;
+    background: none;
+    padding: 0;
+    font-size: 13px;
+    color: #2563eb;
+    cursor: pointer;
+    text-decoration: underline;
 }
 
 .form-actions {

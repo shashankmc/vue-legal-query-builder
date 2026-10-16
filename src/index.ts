@@ -68,6 +68,7 @@ export {
   moveField,
   resetFieldLayout,
   validateFields,
+  filterAdvanced,
   collectParams,
   mergeFieldOptions,
   FILTER_FIELD_KEYS,

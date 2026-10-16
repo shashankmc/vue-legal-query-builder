@@ -1,9 +1,12 @@
 <template>
-    <!-- A field that names a specialised block keeps that block. -->
-    <FieldBlock v-if="field.block" :field="field" :model-value="modelValue"
+    <!-- Resolution order: a host-supplied component, then a specialised block,
+         then the generic control, then an honest "unsupported" note. -->
+    <component :is="hostComponent" v-if="hostComponent" v-bind="hostBindings" />
+
+    <FieldBlock v-else-if="field.block" :field="field" :model-value="modelValue"
         @update:model-value="emit('update:modelValue', $event)" />
 
-    <div v-else class="runtime-field form-group">
+    <div v-else-if="field.control" class="runtime-field form-group">
         <label v-if="field.control === 'boolean'" class="checkbox-label">
             <input type="checkbox" :checked="modelValue === true" :disabled="disabled"
                 @change="emit('update:modelValue', ($event.target as HTMLInputElement).checked)" />
@@ -37,6 +40,12 @@
         <p v-if="field.description" class="field-description">{{ field.description }}</p>
         <p v-if="error" class="runtime-field-error" role="alert">{{ error }}</p>
     </div>
+
+    <div v-else class="runtime-field form-group">
+        <p class="field-unsupported">
+            Unsupported field "{{ field.key }}": no block, control or host component matched.
+        </p>
+    </div>
 </template>
 
 <script lang="ts">
@@ -48,7 +57,7 @@ function nextFieldId(): number {
 </script>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, type Component } from 'vue'
 import type { FieldDescriptor } from 'legal-retrieval-types'
 import FieldBlock from '../FieldBlock.vue'
 import OptionSelect from './OptionSelect.vue'
@@ -58,11 +67,30 @@ const props = defineProps<{
     modelValue?: unknown
     disabled?: boolean
     error?: string
+    /** Host components, keyed by `FieldDescriptor.block` (or `control`). */
+    components?: Record<string, Component>
 }>()
 
 const emit = defineEmits<{ 'update:modelValue': [value: unknown] }>()
 
 const inputId = `runtime-field-${nextFieldId()}`
+
+// A host component wins over the built-in block and the generic control. The
+// field's own inputs are passed through; the host owns the rest.
+const hostComponent = computed<Component | undefined>(() => {
+    if (!props.components) return undefined
+    if (props.field.block && props.components[props.field.block]) return props.components[props.field.block]
+    if (props.field.control && props.components[props.field.control]) return props.components[props.field.control]
+    return undefined
+})
+
+const hostBindings = computed(() => ({
+    field: props.field,
+    modelValue: props.modelValue,
+    disabled: props.disabled,
+    error: props.error,
+    'onUpdate:modelValue': (value: unknown) => emit('update:modelValue', value),
+}))
 
 const selectControls = ['select', 'multiselect', 'remote-select']
 
@@ -177,5 +205,11 @@ function onInput(event: Event) {
     margin: 0;
     font-size: 12px;
     color: #dc2626;
+}
+
+.field-unsupported {
+    margin: 0;
+    font-size: 12px;
+    color: #b45309;
 }
 </style>

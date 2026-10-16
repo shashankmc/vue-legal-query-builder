@@ -248,6 +248,11 @@ export declare function validateFields(
   fields: FieldDescriptor[],
   values: Record<string, unknown>,
 ): FieldValidation;
+/** Splits a field list by the advanced toggle. */
+export declare function filterAdvanced(
+  fields: FieldDescriptor[],
+  showAdvanced: boolean,
+): FieldDescriptor[];
 export declare function collectParams(
   fields: FieldDescriptor[],
   values: Record<string, unknown>,
@@ -331,6 +336,11 @@ export interface LegalSearchRuntime {
   activeFields: Ref<FieldDescriptor[]>;
   visibleFields: Ref<FieldDescriptor[]>;
   hasDeclaredFields: Ref<boolean>;
+  /** Whether users may show/hide and reorder optional fields. */
+  allowFieldCustomization: Ref<boolean>;
+  /** Whether the fields marked `advanced` are on screen. */
+  showAdvancedFields: Ref<boolean>;
+  setShowAdvanced(value: boolean): void;
   activeValues: Ref<Record<string, unknown>>;
   activeLayout: Ref<FieldLayout>;
   activeState: Ref<DatabaseFormState>;
