@@ -1,4 +1,4 @@
-import type { App, Plugin } from "vue";
+import type { App, Plugin, Component } from "vue";
 
 // Export components
 import LegalDocsForm from "./components/LegalDocsForm.vue";
@@ -8,6 +8,19 @@ export { RankedList };
 export type { SearchLaws } from "./components/hostCallbacks";
 export type { LegalDocsFormProps, Dataset, DatasetDescriptor, FieldDescriptor, ResultViewRef, LegalDocsQuery, Goal, GoalFixedParameters, GuidedStructure, GuidedTemplate, GuidedTemplateId, Step, Block } from "./components/types";
 export { BUILT_IN_DATASETS, FormType, BlockType } from "./components/types";
+
+// Result shaping: whatever a search returned, flattened for a view. Pure, and
+// shared by the built-in ranked list and any host view.
+export {
+  toResultEntries,
+  isNormalizedSearchResult,
+  scorePercent,
+  formatScore,
+} from "./components/resultEntries";
+export type { ResultEntry, ResultEntries } from "./components/resultEntries";
+
+/** Host result views, keyed by `ResultViewRef.kind`. */
+export type ResultViewRegistry = Record<string, Component>;
 
 // The provider-agnostic runtime: the providers/databases a manifest resolves to
 // and the host adapter the form calls. See

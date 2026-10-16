@@ -599,6 +599,46 @@ The demo wires exactly this to an in-memory `call` in
 [`demo/runtimeProvider.ts`](demo/runtimeProvider.ts) — swap `call` for the
 `fetch` above and it is talking to a real bridge.
 
+### Result views
+
+A result is rendered by the first of these that exists:
+
+1. a **host view** from `resultViews`, looked up by the kind the database's
+   `defaultResultView` names;
+2. the **`#results` slot**;
+3. the **built-in** view for that kind (`ranked-list`);
+4. in development, a raw JSON dump; in production, a line saying no view is
+   registered for that kind.
+
+```vue
+<LegalDocsForm
+  :manifest="manifest"
+  :adapter="adapter"
+  :result-views="{ 'ranked-list': MyTableView }"
+/>
+```
+
+A host view receives `result` (whatever the search returned), `resultView` and
+`loading`, and emits `load-more`. It does not have to understand the payload
+itself — `toResultEntries(result)` flattens a normalized provider result, a bare
+array of hits, or the older provisions-style `{ documents: […] }` into the same
+`ResultEntry[]`, and reports `total`, `warnings`, `partial`, `nextCursor` and
+`empty` alongside it:
+
+```ts
+import { toResultEntries } from 'vue-legal-query-builder'
+
+const shaped = toResultEntries(props.result)
+shaped.entries[0].court   // lifted out of the hit's metadata
+shaped.nextCursor         // present only when the provider paged
+```
+
+The built-in `ranked-list` shows the title (linked to the official source when
+the provider gave a `url`), the snippet, score, and whatever of source, court,
+jurisdiction, date, language, ECLI, case and country the hit carries. It reports
+an empty set and any partial-result warning rather than looking broken, and
+offers **Load more** only when the provider returned a cursor.
+
 ## Requirements
 
 - Vue 3.4 or higher

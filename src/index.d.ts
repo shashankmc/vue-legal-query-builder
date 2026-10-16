@@ -1,5 +1,4 @@
-import type { Component, DefineComponent, Plugin, Ref } from "vue";
-import type {
+import type { Component, DefineComponent, Plugin, Ref } from "vue";import type {
   RechtspraakQueryParameters,
   RechtspraakDocument,
   RechtspraakFullTextDocument,
@@ -362,6 +361,8 @@ export interface LegalSearchRuntime {
   validate(): FieldValidation;
   buildRequest(cursor?: string): ProviderSearchRequest | undefined;
   search(): Promise<NormalizedSearchResult | undefined>;
+  /** Fetches the next page and appends it, when the provider offered a cursor. */
+  searchMore(): Promise<NormalizedSearchResult | undefined>;
 
   discovery: RuntimeDiscoveryState;
   /** Country whose sources are offered, when the provider supports discovery. */
@@ -439,6 +440,49 @@ export declare const LegalDocsForm: DefineComponent<LegalDocsFormProps, {}, any>
 
 /** A simple ranked list for provisions-style results. */
 export declare const RankedList: DefineComponent<{ result: unknown }, {}, any>;
+
+/** Host result views, keyed by `ResultViewRef.kind`. */
+export type ResultViewRegistry = Record<string, Component>;
+
+/** One result, flattened for display. */
+export interface ResultEntry {
+  id: string;
+  position: number;
+  title: string;
+  snippet?: string;
+  score?: number;
+  source?: string;
+  sourceId?: string;
+  url?: string;
+  date?: string;
+  country?: string;
+  language?: string;
+  court?: string;
+  ecli?: string;
+  caseNumber?: string;
+  jurisdiction?: string;
+  topProvision?: string;
+  raw: unknown;
+}
+
+/** A result set, flattened, plus what a view needs to say about it. */
+export interface ResultEntries {
+  entries: ResultEntry[];
+  total?: number;
+  warnings: string[];
+  partial: boolean;
+  nextCursor?: string;
+  elapsedMs?: number;
+  empty: boolean;
+}
+
+/** Flattens a result into entries plus the notes a view should show. */
+export declare function toResultEntries(result: unknown): ResultEntries;
+export declare function isNormalizedSearchResult(
+  result: unknown,
+): result is NormalizedSearchResult;
+export declare function scorePercent(score: number): number;
+export declare function formatScore(score: number | undefined): string;
 
 
 export { DocType } from "legal-docs-types";

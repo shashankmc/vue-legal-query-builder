@@ -52,6 +52,11 @@
           Provide <code>onSubmit</code>
         </label>
 
+        <label class="check">
+          <input type="checkbox" v-model="customResultView" />
+          Register a custom result view
+        </label>
+
         <label>
           Title
           <input v-model="title" type="text" />
@@ -70,6 +75,7 @@
         :datasets="datasets"
         :manifest="manifest"
         :adapter="adapter"
+        :result-views="resultViews"
         :on-search-laws="withLawSearch ? searchLaws : undefined"
         :on-submit="withOnSubmit ? handleOnSubmit : undefined"
         @submit="onSubmit"
@@ -118,6 +124,7 @@
           <tr><td>Host-defined field set, no fork</td><td>Structure = BlueLab-style</td><td class="new">new seam</td></tr>
           <tr><td>Provider runtime (manifest + adapter)</td><td>Provider runtime = Legal Data Hunter</td><td class="new">new seam</td></tr>
           <tr><td>Runtime discovery (country → source → filters)</td><td>Provider runtime = Legal Data Hunter</td><td class="new">new seam</td></tr>
+          <tr><td>Pluggable result view (host registry)</td><td>Register a custom result view</td><td class="new">new seam</td></tr>
         </tbody>
       </table>
     </section>
@@ -130,11 +137,13 @@ import { LegalDocsForm, FormType, BUILT_IN_DATASETS, type DatasetDescriptor, typ
 import { allBlocksStructure, bluelabStructure, realisticStructure } from './structures'
 import { searchDocuments, searchLaws as stubSearchLaws, type SearchResponse } from './stubBackend'
 import { runtimeAdapter, runtimeManifest } from './runtimeProvider'
+import CustomResultView from './CustomResultView.vue'
 
 const mode = ref<'free' | 'guided'>('guided')
 const structureKey = ref<'realistic' | 'allBlocks' | 'bluelab'>('realistic')
 const datasetKey = ref<'builtin' | 'builtin-bluelab' | 'bluelab-only'>('builtin')
 const runtimeKey = ref<'off' | 'ldh'>('off')
+const customResultView = ref(false)
 const withLawSearch = ref(true)
 const withOnSubmit = ref(true)
 const title = ref('Search legal documents')
@@ -156,6 +165,12 @@ const datasets = computed(() => datasetsByKey[datasetKey.value])
 
 const manifest = computed(() => (runtimeKey.value === 'ldh' ? runtimeManifest : undefined))
 const adapter = computed(() => (runtimeKey.value === 'ldh' ? runtimeAdapter : undefined))
+
+// A host view for the kind the database declares, so the registry path is
+// exercised rather than the built-in ranked list.
+const resultViews = computed(() =>
+  customResultView.value ? { 'ranked-list': CustomResultView } : undefined,
+)
 
 // Remount the form when the shape changes, so switching modes/structures is clean.
 const formKey = computed(() => `${mode.value}:${structureKey.value}:${datasetKey.value}:${runtimeKey.value}:${title.value}`)

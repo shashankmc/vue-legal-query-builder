@@ -355,6 +355,35 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
     }
   }
 
+  /**
+   * Fetches the next page and appends it, when the provider offered a cursor.
+   * Without one there is nothing more to ask for.
+   */
+  async function searchMore(): Promise<NormalizedSearchResult | undefined> {
+    const adapter = options.adapter
+    const state = stateFor()
+    const cursor = state.result?.nextCursor
+    if (!adapter?.search || !cursor) return undefined
+
+    const request = buildRequest(cursor)
+    if (!request) return undefined
+
+    state.loading = true
+    try {
+      const page = await adapter.search(request)
+      const previous = state.result
+      state.result = previous
+        ? { ...page, hits: [...previous.hits, ...page.hits] }
+        : page
+      return state.result
+    } catch (error) {
+      state.error = normalizeAdapterError(error, 'search', request.provider)
+      throw state.error
+    } finally {
+      state.loading = false
+    }
+  }
+
   function resetDiscovery(): void {
     discoverySequence += 1
     discovery.loading = false
@@ -513,6 +542,7 @@ export function useLegalSearchRuntime(options: UseLegalSearchRuntimeOptions = {}
     validate,
     buildRequest,
     search,
+    searchMore,
 
     // discovery
     discovery,

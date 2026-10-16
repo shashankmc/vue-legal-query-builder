@@ -59,14 +59,21 @@
             <p class="loader-text">Searching documents...</p>
         </div>
 
-        <!-- Results. A host can render its own view via the #results slot; the
-             built-in ranked list covers provisions-style datasets. -->
+        <!-- Results. A host-registered view wins, then the #results slot, then
+             the built-in view the database names. Nothing is inferred from the
+             shape of the payload — see components/resultEntries.ts. -->
         <section v-if="lastResult" class="results-section">
-            <slot name="results" :result="lastResult" :dataset="activeDataset" :result-view="activeDataset?.resultView">
-                <RankedList
-                    v-if="activeDataset?.resultView?.kind === 'ranked-list'"
-                    :result="lastResult"
-                />
+            <component :is="hostResultView" v-if="hostResultView" :result="lastResult"
+                :result-view="activeResultView" :loading="loading" @load-more="handleLoadMore" />
+
+            <slot v-else name="results" :result="lastResult" :dataset="activeDataset"
+                :result-view="activeResultView">
+                <RankedList v-if="activeResultView?.kind === 'ranked-list'" :result="lastResult"
+                    :loading="loading" @load-more="handleLoadMore" />
+                <pre v-else-if="showRawResult" class="results-raw">{{ formattedRawResult }}</pre>
+                <p v-else class="results-unsupported">
+                    No view is registered for result kind "{{ activeResultView?.kind }}".
+                </p>
             </slot>
         </section>
     </div>
@@ -233,6 +240,49 @@ const error = ref<string | null>(null)
 const successMessage = ref<string | null>(null)
 const hasValidationWarning = ref(false)
 const lastResult = ref<unknown>(null)
+
+// Which view renders the result: the runtime database's, or the dataset's.
+const activeResultView = computed(() =>
+    runtime.ready.value ? runtime.activeDatabase.value?.defaultResultView : activeDataset.value?.resultView,
+)
+
+// A host-registered view beats the slot and the built-in one.
+const hostResultView = computed(() => {
+    const registry = props.resultViews
+    const kind = activeResultView.value?.kind
+    if (!registry || !kind) return undefined
+    return registry[kind]
+})
+
+// A raw dump is a development aid, not a product feature. In a production build
+// an unmapped result kind says so rather than silently rendering nothing.
+const showRawResult = computed(() => {
+    const env = (import.meta as unknown as { env?: { DEV?: boolean } }).env
+    return env?.DEV === true
+})
+
+const formattedRawResult = computed(() => {
+    try {
+        return JSON.stringify(lastResult.value, null, 2)
+    } catch {
+        return String(lastResult.value)
+    }
+})
+
+const handleLoadMore = async () => {
+    emit('operation-start', 'searchMore')
+    try {
+        const result = await runtime.searchMore()
+        if (result) {
+            lastResult.value = result
+            emit('operation-success', 'searchMore', result)
+        }
+    } catch (err: any) {
+        error.value = err.message || 'An error occurred'
+        emit('operation-error', 'searchMore', err)
+        emit('error', err)
+    }
+}
 
 const parseList = (input: string): string[] | undefined => {
     const items = input.split(',').map(i => i.trim()).filter(i => i.length > 0)
@@ -829,6 +879,27 @@ const clearMessages = () => {
   color: #6b7280;
   margin-bottom: 32px;
   font-size: 16px;
+}
+
+.results-section {
+  margin-top: 24px;
+}
+
+.results-raw {
+  margin: 0;
+  padding: 12px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 12px;
+  overflow: auto;
+  max-height: 420px;
+}
+
+.results-unsupported {
+  margin: 0;
+  font-size: 13px;
+  color: #6b7280;
 }
 
 /* Loader */
