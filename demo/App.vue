@@ -38,8 +38,12 @@
           Provider runtime
           <select v-model="runtimeKey">
             <option value="off">Off (datasets / guided structure)</option>
-            <option value="ldh">Legal Data Hunter manifest (runtime)</option>
+            <option value="ldh">Legal Data Hunter manifest (runtime, stub data)</option>
+            <option value="ldh-live">Legal Data Hunter — live API</option>
           </select>
+          <small v-if="runtimeKey === 'ldh-live'" class="hint">
+            {{ liveStatusText }}
+          </small>
         </label>
 
         <label class="check">
@@ -133,17 +137,27 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { LegalDocsForm, FormType, BUILT_IN_DATASETS, type DatasetDescriptor, type GuidedStructure, type LegalDocsQuery } from '../src'
 import { allBlocksStructure, bluelabStructure, realisticStructure } from './structures'
 import { searchDocuments, searchLaws as stubSearchLaws, type SearchResponse } from './stubBackend'
-import { runtimeAdapter, runtimeManifest } from './runtimeProvider'
+import { liveAdapter, liveStatus, runtimeAdapter, runtimeManifest } from './runtimeProvider'
 import CustomResultView from './CustomResultView.vue'
 
 const mode = ref<'free' | 'guided'>('guided')
 const structureKey = ref<'realistic' | 'allBlocks' | 'bluelab'>('realistic')
 const datasetKey = ref<'builtin' | 'builtin-bluelab' | 'bluelab-only'>('builtin')
-const runtimeKey = ref<'off' | 'ldh'>('off')
+const runtimeKey = ref<'off' | 'ldh' | 'ldh-live'>('off')
+const liveStatusText = ref('Checking the dev server…')
+watch(runtimeKey, async (key) => {
+  if (key !== 'ldh-live') return
+  const status = await liveStatus()
+  liveStatusText.value = !status
+    ? 'No /api/ldh route — run the demo with `npm run demo`.'
+    : status.keyConfigured
+      ? 'Key configured on the dev server. Calls go to legaldatahunter.com.'
+      : 'No LDH_KEY on the dev server: discovery works, search will fail with 401.'
+})
 const customResultView = ref(false)
 const withLawSearch = ref(true)
 const withOnSubmit = ref(true)
@@ -164,8 +178,10 @@ const datasetsByKey: Record<string, DatasetDescriptor[] | undefined> = {
 }
 const datasets = computed(() => datasetsByKey[datasetKey.value])
 
-const manifest = computed(() => (runtimeKey.value === 'ldh' ? runtimeManifest : undefined))
-const adapter = computed(() => (runtimeKey.value === 'ldh' ? runtimeAdapter : undefined))
+const manifest = computed(() => (runtimeKey.value === 'off' ? undefined : runtimeManifest))
+const adapter = computed(() =>
+  runtimeKey.value === 'ldh' ? runtimeAdapter : runtimeKey.value === 'ldh-live' ? liveAdapter : undefined,
+)
 
 // A host view for the kind the database declares, so the registry path is
 // exercised rather than the built-in ranked list.

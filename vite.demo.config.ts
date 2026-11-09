@@ -2,10 +2,11 @@
 // stays untouched. Run with:  npm run demo
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { ldhBridge } from './demo/ldhBridge'
 
 export default defineConfig({
   root: 'demo',
-  plugins: [vue()],
+  plugins: [vue(), ldhBridge()],
   server: { port: 5173, open: true },
   build: { outDir: '../dist-demo', emptyOutDir: true },
 })
