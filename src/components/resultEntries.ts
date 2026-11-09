@@ -28,6 +28,8 @@ export interface ResultEntry {
   jurisdiction?: string
   /** Provisions-style extra, kept for the retriever's own results. */
   topProvision?: string
+  /** Every provider-specific field, as the normalized hit carries it. */
+  metadata: Record<string, unknown>
   raw: unknown
 }
 
@@ -97,6 +99,7 @@ function toEntry(raw: unknown, index: number): ResultEntry {
     caseNumber: text(metadata.caseNumber) ?? text(entry.case_number),
     jurisdiction: text(metadata.jurisdiction) ?? text(entry.jurisdiction),
     topProvision: text(entry.top_provision),
+    metadata,
     raw,
   }
 }

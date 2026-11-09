@@ -474,7 +474,52 @@ export declare const RankedList: DefineComponent<{
   loading?: boolean;
   /** Whether each result offers a "View document" action. */
   canOpenDocument?: boolean;
+  /** The fields to show under each hit, in order. Omitted: a fixed set. */
+  columns?: ResultFieldDescriptor[];
 }, {}, any>;
+
+/** The same results as a table, one column per chosen field. Scrolls sideways when narrow. */
+export declare const ResultTable: DefineComponent<{
+  result: unknown;
+  columns: ResultFieldDescriptor[];
+  loading?: boolean;
+  canOpenDocument?: boolean;
+}, {}, any>;
+
+/** How a result field's value is rendered. */
+export type ResultFieldType = "text" | "longtext" | "date" | "url" | "number" | "code";
+/** One field a result can carry. A provider lists these in `resultView.config.fields`. */
+export interface ResultFieldDescriptor {
+  /** A `metadata` key, or a core slot such as `date`. */
+  key: string;
+  label: string;
+  type?: ResultFieldType;
+  /** Shown before the user picks their own columns. */
+  default?: boolean;
+}
+/** The catalogue a result view was configured with, when it has one. */
+export declare function resultFieldsFromView(view: ResultViewRef | undefined): ResultFieldDescriptor[] | undefined;
+/** A field's value on one entry: metadata first, then the entry's own slot. */
+export declare function resultFieldValue(entry: ResultEntry, key: string): unknown;
+export declare function humanizeFieldKey(key: string): string;
+/** Catalogue fields present in at least one entry, in order, then any other present field. */
+export declare function availableResultFields(
+  entries: ResultEntry[],
+  catalog?: ResultFieldDescriptor[],
+): ResultFieldDescriptor[];
+export declare function defaultResultColumns(available: ResultFieldDescriptor[]): string[];
+/** The saved choice where those fields are present, else the defaults. */
+export declare function resolveResultColumns(
+  available: ResultFieldDescriptor[],
+  saved: string[] | null | undefined,
+): string[];
+/** Where a column choice is remembered: per provider, corpus and source set. */
+export declare function resultColumnsStorageKey(
+  provider: string | undefined,
+  database: string | undefined,
+  sources: unknown,
+): string;
+export declare function formatResultValue(value: unknown, type: ResultFieldType | undefined): string;
 
 /** Host result views, keyed by `ResultViewRef.kind`. */
 export type ResultViewRegistry = Record<string, Component>;
@@ -497,6 +542,8 @@ export interface ResultEntry {
   caseNumber?: string;
   jurisdiction?: string;
   topProvision?: string;
+  /** Every provider-specific field, as the normalized hit carries it. */
+  metadata: Record<string, unknown>;
   raw: unknown;
 }
 
@@ -546,8 +593,9 @@ export declare function namespaceForDatabase(
   databaseId: string,
 ): string | undefined;
 
+/** The JSON body `POST /v1/search` accepts. */
 export interface LegalDataHunterSearchArgs {
-  query: string;
+  q: string;
   namespace?: string;
   top_k?: number;
   alpha?: number;
@@ -556,10 +604,10 @@ export interface LegalDataHunterSearchArgs {
   court?: string;
   court_tier?: number;
   jurisdiction?: string;
-  subdivision?: string;
   language?: string;
   date_start?: string;
   date_end?: string;
+  result_detail?: string;
 }
 export interface LegalDataHunterResolveArgs {
   reference: string;
@@ -614,7 +662,7 @@ export declare function normalizeLegalDataHunterResolvedReference(
 ): ResolvedLegalReference;
 
 export interface LegalDataHunterAdapterOptions {
-  /** Sends one operation to the host's server-side bridge. No HTTP here. */
+  /** Sends one operation to the host's server, which holds the API key. No HTTP here. */
   call(
     operation: LegalDataHunterOperation,
     payload: Record<string, unknown>,
@@ -625,6 +673,28 @@ export interface LegalDataHunterAdapterOptions {
 export declare function createLegalDataHunterAdapter(
   options: LegalDataHunterAdapterOptions,
 ): LegalSearchAdapter;
+
+/** Every field an LDH hit can carry, for result views. Shown when present. */
+export declare const LEGAL_DATA_HUNTER_RESULT_FIELDS: ResultFieldDescriptor[];
+
+/** Where the Legal Data Hunter REST API is served. Paths start at `/v1`. */
+export declare const LEGAL_DATA_HUNTER_BASE_URL: "https://legaldatahunter.com";
+/** One REST call, ready for the host's server to send. */
+export interface LegalDataHunterRestRequest {
+  method: "GET" | "POST";
+  /** The path from the base URL, query string included. */
+  path: string;
+  /** The JSON body, for `POST`. */
+  body?: Record<string, unknown>;
+}
+/**
+ * Turns an adapter operation into its REST call. The host's server adds the
+ * base URL and `Authorization: Bearer <LDH_KEY>`, then sends it.
+ */
+export declare function toLegalDataHunterRestRequest(
+  operation: LegalDataHunterOperation,
+  payload: Record<string, unknown>,
+): LegalDataHunterRestRequest;
 
 
 

@@ -68,9 +68,15 @@
 
             <slot v-else name="results" :result="lastResult" :dataset="activeDataset"
                 :result-view="activeResultView" :open-document="handleOpenDocument">
-                <RankedList v-if="activeResultView?.kind === 'ranked-list'" :result="lastResult"
-                    :loading="loading" :can-open-document="canOpenDocument" @load-more="handleLoadMore"
-                    @open-document="handleOpenDocument" />
+                <ResultToolbar v-if="showResultToolbar" :views="BUILT_IN_VIEWS" :view="effectiveViewKind"
+                    :available="availableColumns" :visible="visibleColumnKeys"
+                    @update:view="setResultView" @update:visible="setColumns" @reset="resetColumns" />
+                <RankedList v-if="effectiveViewKind === 'ranked-list'" :result="lastResult"
+                    :loading="loading" :can-open-document="canOpenDocument" :columns="listColumns"
+                    @load-more="handleLoadMore" @open-document="handleOpenDocument" />
+                <ResultTable v-else-if="effectiveViewKind === 'table'" :result="lastResult"
+                    :columns="visibleColumns" :loading="loading" :can-open-document="canOpenDocument"
+                    @load-more="handleLoadMore" @open-document="handleOpenDocument" />
                 <pre v-else-if="showRawResult" class="results-raw">{{ formattedRawResult }}</pre>
                 <p v-else class="results-unsupported">
                     No view is registered for result kind "{{ activeResultView?.kind }}".
@@ -111,11 +117,20 @@ import FreeForm from './forms/FreeForm.vue'
 import GuidedForm from './forms/GuidedForm.vue'
 import DatasetFieldsForm from './DatasetFieldsForm.vue'
 import RankedList from './RankedList.vue'
+import ResultTable from './ResultTable.vue'
+import ResultToolbar from './ResultToolbar.vue'
+import {
+    availableResultFields,
+    resolveResultColumns,
+    resultColumnsStorageKey,
+    resultFieldsFromView,
+    type ResultFieldDescriptor,
+} from './resultFields'
 import RuntimeSelector from './runtime/RuntimeSelector.vue'
 import RuntimeFieldsForm from './runtime/RuntimeFieldsForm.vue'
 import RuntimeDocumentPanel from './runtime/RuntimeDocumentPanel.vue'
 import RuntimeResolvePanel from './runtime/RuntimeResolvePanel.vue'
-import type { ResultEntry } from './resultEntries'
+import { toResultEntries, type ResultEntry } from './resultEntries'
 
 const props = withDefaults(defineProps<LegalDocsFormProps>(), {
     type: FormType.FREE
@@ -266,6 +281,88 @@ const hostResultView = computed(() => {
     if (!registry || !kind) return undefined
     return registry[kind]
 })
+
+// --- Result layout: list or table, and which fields show -------------------
+//
+// The provider's catalogue (resultView.config.fields) says what a hit *can*
+// carry; the columns offered are the ones these results actually carry. The
+// user's choice is remembered per provider, corpus and source selection.
+
+const BUILT_IN_VIEWS = [
+    { kind: 'ranked-list', label: 'List' },
+    { kind: 'table', label: 'Table' },
+]
+const VIEW_STORAGE_KEY = 'lqb-result-view'
+
+function readStored<T>(key: string): T | null {
+    try {
+        const text = globalThis.localStorage?.getItem(key)
+        return text ? (JSON.parse(text) as T) : null
+    } catch {
+        return null
+    }
+}
+
+function writeStored(key: string, value: unknown) {
+    try {
+        if (value === null) globalThis.localStorage?.removeItem(key)
+        else globalThis.localStorage?.setItem(key, JSON.stringify(value))
+    } catch {
+        // Private mode or storage full: the choice lasts for this page only.
+    }
+}
+
+const chosenViewKind = ref<string | null>(readStored<string>(VIEW_STORAGE_KEY))
+const isBuiltInView = (kind: string | undefined) => BUILT_IN_VIEWS.some((view) => view.kind === kind)
+
+// The user's pick applies only where the database's own view is a built-in one.
+const effectiveViewKind = computed(() => {
+    const declared = activeResultView.value?.kind
+    if (isBuiltInView(declared) && isBuiltInView(chosenViewKind.value ?? undefined)) return chosenViewKind.value!
+    return declared
+})
+
+function setResultView(kind: string) {
+    chosenViewKind.value = kind
+    writeStored(VIEW_STORAGE_KEY, kind)
+}
+
+const resultEntries = computed(() => toResultEntries(lastResult.value).entries)
+const resultCatalog = computed(() => resultFieldsFromView(activeResultView.value))
+const availableColumns = computed(() => availableResultFields(resultEntries.value, resultCatalog.value))
+
+const columnsStorageKey = computed(() =>
+    resultColumnsStorageKey(
+        runtime.ready.value ? runtime.providerId.value : 'dataset',
+        runtime.ready.value ? runtime.databaseId.value : activeDataset.value?.id,
+        runtime.ready.value ? runtime.activeValues.value?.source : undefined,
+    ),
+)
+const savedColumns = ref<string[] | null>(null)
+watch(columnsStorageKey, (key) => (savedColumns.value = readStored<string[]>(key)), { immediate: true })
+
+const visibleColumnKeys = computed(() => resolveResultColumns(availableColumns.value, savedColumns.value))
+const visibleColumns = computed(() =>
+    visibleColumnKeys.value
+        .map((key) => availableColumns.value.find((field) => field.key === key))
+        .filter((field): field is ResultFieldDescriptor => field !== undefined),
+)
+// The list keeps its fixed facts unless the provider describes its fields.
+const listColumns = computed(() => (resultCatalog.value ? visibleColumns.value : undefined))
+
+function setColumns(keys: string[]) {
+    savedColumns.value = keys
+    writeStored(columnsStorageKey.value, keys)
+}
+
+function resetColumns() {
+    savedColumns.value = null
+    writeStored(columnsStorageKey.value, null)
+}
+
+const showResultToolbar = computed(
+    () => isBuiltInView(activeResultView.value?.kind) && resultEntries.value.length > 0,
+)
 
 // A raw dump is a development aid, not a product feature. In a production build
 // an unmapped result kind says so rather than silently rendering nothing.

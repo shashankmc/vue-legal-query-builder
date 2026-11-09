@@ -36,6 +36,7 @@ const {
   normalizeLegalDataHunterFilters,
   normalizeLegalDataHunterResolvedReference,
   createLegalDataHunterAdapter,
+  toLegalDataHunterRestRequest,
 } = await loadLegalDataHunter()
 
 const context = { provider: 'ldh', database: 'case-law' }
@@ -69,7 +70,7 @@ test('namespaceForDatabase maps a corpus onto its namespace', () => {
   assert.equal(namespaceForDatabase(legalDataHunterManifest, 'ghost'), undefined)
 })
 
-test('search args are MCP-shaped and omit what the user did not choose', () => {
+test('search args are the REST body and omit what the user did not choose', () => {
   const args = toLegalDataHunterSearchArgs({
     provider: 'ldh',
     database: 'case-law',
@@ -83,16 +84,18 @@ test('search args are MCP-shaped and omit what the user did not choose', () => {
       language: '',
       jurisdiction: undefined,
       source: [],
+      result_detail: 'full_metadata',
     },
   })
 
   assert.deepEqual(args, {
-    query: 'right to be forgotten',
+    q: 'right to be forgotten',
     top_k: 10,
     alpha: 0.7,
     country: ['FR', 'DE'],
     court: 'Cour de cassation',
     court_tier: 1,
+    result_detail: 'full_metadata',
   })
 
   // The empty list, the empty string and the undefined are all dropped.
@@ -218,6 +221,13 @@ test('sources normalize onto their court name', () => {
   assert.equal(sources[0].count, 520000)
   assert.equal(sources[0].metadata.tier, 1)
   assert.equal(sources[1].label, 'FR/CNIL')
+
+  // The live API's shape: `data_types` is a list.
+  const [live] = normalizeLegalDataHunterSources({
+    country: 'FR',
+    sources: [{ source_id: 'FR/Judilibre', data_types: ['case_law'], date_range: { min_year: 1860, max_year: 2026 } }],
+  })
+  assert.deepEqual(live.metadata.dataType, ['case_law'])
 })
 
 test('filters normalize snake_case keys onto the shared shape', () => {
@@ -296,4 +306,64 @@ test('the adapter maps requests and normalizes responses through the host transp
     issueType: 'other',
   })
   assert.equal(calls.at(-1).operation, 'report-issue')
+})
+
+test('the adapter skips source discovery until a country is chosen', async () => {
+  const calls = []
+  const adapter = createLegalDataHunterAdapter({
+    async call(operation) {
+      calls.push(operation)
+      return { sources: [] }
+    },
+  })
+  assert.deepEqual(await adapter.discoverSources({ provider: 'ldh', database: 'case-law' }), [])
+  assert.deepEqual(calls, [])
+})
+
+test('each operation maps onto its REST method and path', () => {
+  const args = { q: 'x', top_k: 5 }
+  assert.deepEqual(toLegalDataHunterRestRequest('search', { args }), {
+    method: 'POST',
+    path: '/v1/search',
+    body: args,
+  })
+  assert.deepEqual(toLegalDataHunterRestRequest('resolve', { args: { reference: 'r' } }), {
+    method: 'POST',
+    path: '/v1/resolve',
+    body: { reference: 'r' },
+  })
+  assert.deepEqual(
+    toLegalDataHunterRestRequest('document', { source: 'US/SCOTUS', source_id: 'us_462/html/0416-01.html' }),
+    { method: 'GET', path: '/v1/documents/US/SCOTUS?source_id=us_462%2Fhtml%2F0416-01.html' },
+  )
+  assert.deepEqual(toLegalDataHunterRestRequest('countries', {}), {
+    method: 'GET',
+    path: '/v1/discover/countries',
+  })
+  assert.deepEqual(toLegalDataHunterRestRequest('sources', { country: 'FR', namespace: 'case_law' }), {
+    method: 'GET',
+    path: '/v1/discover/countries/FR/sources',
+  })
+  assert.deepEqual(toLegalDataHunterRestRequest('filters', { source: 'FR/Judilibre', namespace: 'case_law' }), {
+    method: 'GET',
+    path: '/v1/discover/sources/FR/Judilibre/filters?namespace=case_law',
+  })
+  assert.deepEqual(toLegalDataHunterRestRequest('filters', { source: 'FR/Judilibre' }).path,
+    '/v1/discover/sources/FR/Judilibre/filters')
+  assert.deepEqual(
+    toLegalDataHunterRestRequest('report-issue', {
+      args: { source: 'FR/Judilibre', issue_type: 'invalid_url', description: 'dead link' },
+    }),
+    {
+      method: 'POST',
+      path: '/v1/sources/FR/Judilibre/issues',
+      body: { issue_type: 'invalid_url', description: 'dead link' },
+    },
+  )
+})
+
+test('the REST mapping refuses calls it cannot address', () => {
+  assert.throws(() => toLegalDataHunterRestRequest('sources', {}), /per country/)
+  assert.throws(() => toLegalDataHunterRestRequest('document', { source: 'FR/Judilibre' }), /source_id/)
+  assert.throws(() => toLegalDataHunterRestRequest('filters', {}), /needs a source/)
 })

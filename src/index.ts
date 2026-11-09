@@ -5,6 +5,8 @@ import LegalDocsForm from "./components/LegalDocsForm.vue";
 export { LegalDocsForm };
 import RankedList from "./components/RankedList.vue";
 export { RankedList };
+import ResultTable from "./components/ResultTable.vue";
+export { ResultTable };
 export type { SearchLaws } from "./components/hostCallbacks";
 export type { LegalDocsFormProps, Dataset, DatasetDescriptor, FieldDescriptor, ResultViewRef, LegalDocsQuery, Goal, GoalFixedParameters, GuidedStructure, GuidedTemplate, GuidedTemplateId, Step, Block } from "./components/types";
 export { BUILT_IN_DATASETS, FormType, BlockType } from "./components/types";
@@ -18,6 +20,20 @@ export {
   formatScore,
 } from "./components/resultEntries";
 export type { ResultEntry, ResultEntries } from "./components/resultEntries";
+
+// Result fields: which columns a result set can show, worked out from the hits
+// and the provider's field catalogue (`resultView.config.fields`).
+export {
+  resultFieldsFromView,
+  resultFieldValue,
+  humanizeFieldKey,
+  availableResultFields,
+  defaultResultColumns,
+  resolveResultColumns,
+  resultColumnsStorageKey,
+  formatResultValue,
+} from "./components/resultFields";
+export type { ResultFieldDescriptor, ResultFieldType } from "./components/resultFields";
 
 /** Host result views, keyed by `ResultViewRef.kind`. */
 export type ResultViewRegistry = Record<string, Component>;
@@ -112,6 +128,9 @@ export {
   normalizeLegalDataHunterFilters,
   normalizeLegalDataHunterResolvedReference,
   createLegalDataHunterAdapter,
+  LEGAL_DATA_HUNTER_BASE_URL,
+  LEGAL_DATA_HUNTER_RESULT_FIELDS,
+  toLegalDataHunterRestRequest,
 } from "./providers/legalDataHunter";
 export type {
   LegalDataHunterOperation,
@@ -121,6 +140,7 @@ export type {
   LegalDataHunterIssueArgs,
   LegalDataHunterContext,
   LegalDataHunterAdapterOptions,
+  LegalDataHunterRestRequest,
 } from "./providers/legalDataHunter";
 
 // The declarative dataset field schema: a generic, app-agnostic provisions

@@ -3,15 +3,17 @@
 // Three things live here, all of them pure:
 //
 //   1. the manifest a form renders — providers, databases and their fields;
-//   2. the mapping from a collected request to what the `search` tool takes;
+//   2. the mapping from a collected request to the REST API's request bodies,
+//      and from an operation to its REST method and path;
 //   3. the mapping from a provider response to the normalized shapes the UI
 //      reads.
 //
 // There is no client here and no credential. `createLegalDataHunterAdapter`
 // takes a `call` function the host supplies — normally a fetch to the host's own
-// server, which is where the LDH key lives and where the MCP bridge runs. That
-// keeps this package's rule intact: it builds a request and hands it back, it
-// never makes one.
+// server. That server holds the user's LDH API key (configured as `LDH_KEY`),
+// turns the operation into a REST request with `toLegalDataHunterRestRequest`
+// and sends it with `Authorization: Bearer <key>`. That keeps this package's
+// rule intact: it builds a request and hands it back, it never makes one.
 
 import type {
   DiscoveryOption,
@@ -25,6 +27,7 @@ import type {
   ResolvedLegalReference,
   SourceIssueType,
 } from 'legal-retrieval-types'
+import type { ResultFieldDescriptor } from '../components/resultFields'
 
 export const LEGAL_DATA_HUNTER_PROVIDER_ID = 'ldh'
 
@@ -32,7 +35,7 @@ export const LEGAL_DATA_HUNTER_PROVIDER_ID = 'ldh'
 export const LEGAL_DATA_HUNTER_NAMESPACES = ['case_law', 'legislation', 'doctrine'] as const
 export type LegalDataHunterNamespace = (typeof LEGAL_DATA_HUNTER_NAMESPACES)[number]
 
-/** The operations a host bridge is asked to perform. */
+/** The operations a host server is asked to perform. */
 export type LegalDataHunterOperation =
   | 'search'
   | 'document'
@@ -41,6 +44,74 @@ export type LegalDataHunterOperation =
   | 'sources'
   | 'filters'
   | 'report-issue'
+
+// ---------------------------------------------------------------------------
+// The result fields
+// ---------------------------------------------------------------------------
+
+/**
+ * Every field a Legal Data Hunter hit can carry, from the `SearchHit` schema in
+ * LDH's OpenAPI spec, keyed as the normalized hit holds them (camelCase, in
+ * `metadata` unless it is a core slot like `date`).
+ *
+ * LDH declares one schema for all sources but does not say which fields a
+ * source fills, so this is a catalogue, not a column list: a result view shows
+ * the entries that are present in at least one hit, in this order. `default`
+ * marks the columns shown before the user picks their own.
+ */
+export const LEGAL_DATA_HUNTER_RESULT_FIELDS: ResultFieldDescriptor[] = [
+  { key: 'source', label: 'Source', type: 'code', default: true },
+  { key: 'date', label: 'Date', type: 'date', default: true },
+  // Case law
+  { key: 'court', label: 'Court', type: 'text', default: true },
+  { key: 'chamber', label: 'Chamber', type: 'text' },
+  { key: 'courtTier', label: 'Court tier', type: 'number' },
+  { key: 'caseNumber', label: 'Case number', type: 'code', default: true },
+  { key: 'ecli', label: 'ECLI', type: 'code', default: true },
+  { key: 'decisionType', label: 'Decision type', type: 'text' },
+  { key: 'decisionNumber', label: 'Decision number', type: 'code' },
+  { key: 'jurisdiction', label: 'Jurisdiction', type: 'text' },
+  // Legislation and doctrine
+  { key: 'documentType', label: 'Document type', type: 'text', default: true },
+  { key: 'authority', label: 'Authority', type: 'text', default: true },
+  { key: 'status', label: 'Status', type: 'text', default: true },
+  { key: 'effectiveDate', label: 'In force from', type: 'date', default: true },
+  { key: 'expiryDate', label: 'In force until', type: 'date' },
+  { key: 'identifier', label: 'Identifier', type: 'code' },
+  { key: 'eliUri', label: 'ELI', type: 'url' },
+  // Any corpus
+  { key: 'summary', label: 'Summary', type: 'longtext' },
+  { key: 'country', label: 'Country', type: 'code' },
+  { key: 'language', label: 'Language', type: 'code' },
+  { key: 'unitType', label: 'Unit', type: 'text' },
+  { key: 'unitNumber', label: 'Unit number', type: 'code' },
+  { key: 'canonicalPath', label: 'Path', type: 'text' },
+  { key: 'parentSourceId', label: 'Parent document', type: 'code' },
+  { key: 'granularity', label: 'Granularity', type: 'text' },
+  { key: 'qualityTier', label: 'Quality tier', type: 'text' },
+  { key: 'fullTextSize', label: 'Full text size', type: 'number' },
+]
+
+const LEGAL_DATA_HUNTER_RESULT_VIEW = {
+  kind: 'ranked-list',
+  config: { fields: LEGAL_DATA_HUNTER_RESULT_FIELDS },
+}
+
+/** The `result_detail` choice, offered on every corpus. */
+const RESULT_DETAIL_FIELD = {
+  key: 'result_detail',
+  control: 'select' as const,
+  label: 'Detail per result',
+  advanced: true,
+  userConfigurable: true,
+  description: 'Full metadata adds fields such as summary, ELI and status where the source has them.',
+  options: [
+    { value: 'snippet', label: 'Snippet (default)' },
+    { value: 'summary_only', label: 'Summary' },
+    { value: 'full_metadata', label: 'Full metadata' },
+    { value: 'full_text', label: 'Full text' },
+  ],
+}
 
 // ---------------------------------------------------------------------------
 // The manifest
@@ -105,7 +176,7 @@ export const legalDataHunterManifest: QueryBuilderManifestV3 = {
       kind: 'case-law',
       description: 'Court decisions, supreme to first instance.',
       namespaces: ['case_law'],
-      defaultResultView: { kind: 'ranked-list' },
+      defaultResultView: LEGAL_DATA_HUNTER_RESULT_VIEW,
       fields: [
         {
           key: 'query',
@@ -152,11 +223,11 @@ export const legalDataHunterManifest: QueryBuilderManifestV3 = {
           ],
         },
         { key: 'jurisdiction', control: 'text', label: 'Jurisdiction', advanced: true, userConfigurable: true },
-        { key: 'subdivision', control: 'text', label: 'Subdivision', advanced: true, userConfigurable: true },
         { key: 'language', control: 'remote-select', label: 'Language', advanced: true, userConfigurable: true },
         { key: 'date_start', control: 'date', label: 'Decided from', advanced: true, userConfigurable: true },
         { key: 'date_end', control: 'date', label: 'Decided to', advanced: true, userConfigurable: true },
         { key: 'top_k', control: 'number', label: 'Results', min: 1, max: 100, defaultValue: 10, userConfigurable: true },
+        RESULT_DETAIL_FIELD,
         {
           key: 'alpha',
           control: 'range',
@@ -178,7 +249,7 @@ export const legalDataHunterManifest: QueryBuilderManifestV3 = {
       kind: 'legislation',
       description: 'Codes, statutes, decrees and EU instruments.',
       namespaces: ['legislation'],
-      defaultResultView: { kind: 'ranked-list' },
+      defaultResultView: LEGAL_DATA_HUNTER_RESULT_VIEW,
       fields: [
         { key: 'query', control: 'text', label: 'Query', required: true, minLength: 2, placeholder: 'e.g. personal data protection' },
         { key: 'country', control: 'multiselect', label: 'Countries', userConfigurable: true },
@@ -188,6 +259,7 @@ export const legalDataHunterManifest: QueryBuilderManifestV3 = {
         { key: 'date_start', control: 'date', label: 'In force from', advanced: true, userConfigurable: true },
         { key: 'date_end', control: 'date', label: 'In force to', advanced: true, userConfigurable: true },
         { key: 'top_k', control: 'number', label: 'Results', min: 1, max: 100, defaultValue: 10, userConfigurable: true },
+        RESULT_DETAIL_FIELD,
         {
           key: 'alpha',
           control: 'range',
@@ -208,13 +280,14 @@ export const legalDataHunterManifest: QueryBuilderManifestV3 = {
       kind: 'doctrine',
       description: 'Regulator decisions and official commentary.',
       namespaces: ['doctrine'],
-      defaultResultView: { kind: 'ranked-list' },
+      defaultResultView: LEGAL_DATA_HUNTER_RESULT_VIEW,
       fields: [
         { key: 'query', control: 'text', label: 'Query', required: true, minLength: 2 },
         { key: 'country', control: 'multiselect', label: 'Countries', userConfigurable: true },
         { key: 'source', control: 'multiselect', label: 'Sources', advanced: true, userConfigurable: true },
         { key: 'language', control: 'remote-select', label: 'Language', advanced: true, userConfigurable: true },
         { key: 'top_k', control: 'number', label: 'Results', min: 1, max: 100, defaultValue: 10, userConfigurable: true },
+        RESULT_DETAIL_FIELD,
       ],
     },
   ],
@@ -235,13 +308,12 @@ export function namespaceForDatabase(
 // ---------------------------------------------------------------------------
 
 /**
- * The arguments the `search` tool accepts, in MCP shape.
+ * The JSON body `POST /v1/search` accepts.
  *
- * The REST endpoint takes the same set with `q` where this has `query`; that
- * single rename belongs to the bridge, not to the form.
+ * The form collects the text as `query`; the REST API calls it `q`.
  */
 export interface LegalDataHunterSearchArgs {
-  query: string
+  q: string
   namespace?: string
   top_k?: number
   alpha?: number
@@ -250,10 +322,11 @@ export interface LegalDataHunterSearchArgs {
   court?: string
   court_tier?: number
   jurisdiction?: string
-  subdivision?: string
   language?: string
   date_start?: string
   date_end?: string
+  /** How much each hit carries: `snippet` (default), `summary_only`, `full_text`, `full_metadata`. */
+  result_detail?: string
 }
 
 function asNumber(value: unknown): number | undefined {
@@ -276,7 +349,7 @@ function asList(value: unknown): string[] | undefined {
 }
 
 /**
- * Turns a collected form request into the `search` tool's arguments. Absent
+ * Turns a collected form request into the `POST /v1/search` body. Absent
  * values are omitted rather than sent empty, so the provider sees only what the
  * user actually chose.
  *
@@ -289,7 +362,7 @@ export function toLegalDataHunterSearchArgs(
   const params = request.params
 
   const args: LegalDataHunterSearchArgs = {
-    query: asText(params.query) ?? '',
+    q: asText(params.query ?? params.q) ?? '',
     namespace: asText(params.namespace),
     top_k: asNumber(params.top_k),
     alpha: asNumber(params.alpha),
@@ -298,10 +371,10 @@ export function toLegalDataHunterSearchArgs(
     court: asText(params.court),
     court_tier: asNumber(params.court_tier ?? params.courtTier),
     jurisdiction: asText(params.jurisdiction),
-    subdivision: asText(params.subdivision),
     language: asText(params.language),
     date_start: asText(params.date_start),
     date_end: asText(params.date_end),
+    result_detail: asText(params.result_detail),
   }
 
   return Object.fromEntries(
@@ -309,7 +382,7 @@ export function toLegalDataHunterSearchArgs(
   ) as LegalDataHunterSearchArgs
 }
 
-/** The reference-resolution arguments, in MCP shape. */
+/** The `POST /v1/resolve` body. */
 export interface LegalDataHunterResolveArgs {
   reference: string
   hint_country?: string
@@ -372,6 +445,36 @@ function numberOrUndefined(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
+/** Hit keys the shared shape already has a slot for. */
+const HIT_CORE_KEYS = new Set([
+  'id', 'source', 'source_id', 'score', 'title', 'snippet', 'text',
+  'url', 'country', 'language', 'date',
+])
+
+function camelCase(key: string): string {
+  return key.replace(/_([a-z0-9])/g, (_, letter: string) => letter.toUpperCase())
+}
+
+function isEmptyValue(value: unknown): boolean {
+  return (
+    value === null ||
+    value === undefined ||
+    value === false ||
+    (typeof value === 'string' && value.trim() === '') ||
+    (Array.isArray(value) && value.length === 0)
+  )
+}
+
+/** The non-empty fields of a hit beyond the core ones, camelCased. */
+function hitMetadata(hit: Record<string, unknown>): Record<string, unknown> {
+  const metadata: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(hit)) {
+    if (HIT_CORE_KEYS.has(key) || isEmptyValue(value)) continue
+    metadata[camelCase(key)] = value
+  }
+  return metadata
+}
+
 /** One provider hit, normalized to the shape the UI reads. */
 export function normalizeLegalDataHunterHit(
   raw: unknown,
@@ -399,19 +502,10 @@ export function normalizeLegalDataHunterHit(
     date: typeof hit.date === 'string' ? hit.date : undefined,
     country: typeof hit.country === 'string' ? hit.country : undefined,
     language: typeof hit.language === 'string' ? hit.language : undefined,
-    // Source-specific fields the shared shape has no slot for. Kept whole so a
-    // host view can show anything the provider sends.
-    metadata: {
-      ...(typeof hit.court === 'string' ? { court: hit.court } : {}),
-      ...(typeof hit.chamber === 'string' ? { chamber: hit.chamber } : {}),
-      ...(typeof hit.jurisdiction === 'string' ? { jurisdiction: hit.jurisdiction } : {}),
-      ...(typeof hit.court_tier === 'number' ? { courtTier: hit.court_tier } : {}),
-      ...(typeof hit.ecli === 'string' ? { ecli: hit.ecli } : {}),
-      ...(typeof hit.case_number === 'string' ? { caseNumber: hit.case_number } : {}),
-      ...(typeof hit.decision_type === 'string' ? { decisionType: hit.decision_type } : {}),
-      ...(hit.text_unavailable === true ? { textUnavailable: true } : {}),
-      ...(hit.text_truncated === true ? { textTruncated: true } : {}),
-    },
+    // Every other field the provider filled, camelCased. Which ones a source
+    // fills varies, so nothing is picked here: the result view works out its
+    // columns from what actually came back. See LEGAL_DATA_HUNTER_RESULT_FIELDS.
+    metadata: hitMetadata(hit),
     raw,
   }
 }
@@ -521,7 +615,8 @@ export function normalizeLegalDataHunterSources(raw: unknown): DiscoveryOption[]
         description: typeof entry.notes === 'string' ? entry.notes : undefined,
         count: numberOrUndefined(entry.document_count),
         metadata: {
-          dataType: entry.data_type,
+          // The live API sends `data_types` (a list); older docs show `data_type`.
+          dataType: entry.data_types ?? entry.data_type,
           tier: entry.tier,
           dateRange: entry.date_range,
         },
@@ -677,6 +772,8 @@ export function createLegalDataHunterAdapter(
     },
 
     async discoverSources(request) {
+      // The API lists sources per country; with none chosen there is nothing to ask.
+      if (!request.country) return []
       const raw = await options.call('sources', {
         country: request.country,
         namespace: namespaceForDatabase(manifest, request.database ?? ''),
@@ -697,5 +794,98 @@ export function createLegalDataHunterAdapter(
         args: toLegalDataHunterIssueArgs(request),
       })
     },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The REST mapping, for the host's server
+// ---------------------------------------------------------------------------
+
+/** Where the Legal Data Hunter REST API is served. Paths below start at `/v1`. */
+export const LEGAL_DATA_HUNTER_BASE_URL = 'https://legaldatahunter.com'
+
+/** One REST call, ready for the host's server to send. */
+export interface LegalDataHunterRestRequest {
+  method: 'GET' | 'POST'
+  /** The path from the base URL, query string included. */
+  path: string
+  /** The JSON body, for `POST`. */
+  body?: Record<string, unknown>
+}
+
+/** `FR/Judilibre` as a path: each segment encoded, the slash kept. */
+function sourcePath(source: unknown): string {
+  const text = asText(source)
+  if (!text) throw new Error('Legal Data Hunter needs a source here.')
+  return text.split('/').map(encodeURIComponent).join('/')
+}
+
+function withQuery(path: string, query: Record<string, unknown>): string {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    const text = asText(value)
+    if (text !== undefined) params.set(key, text)
+  }
+  const search = params.toString()
+  return search ? `${path}?${search}` : path
+}
+
+/**
+ * Turns one adapter operation and its payload into the REST call that performs
+ * it. Pure: the host's server adds the base URL and
+ * `Authorization: Bearer <LDH_KEY>`, sends it, and returns the JSON response.
+ *
+ * ```ts
+ * const { method, path, body } = toLegalDataHunterRestRequest(operation, payload)
+ * const response = await fetch(LEGAL_DATA_HUNTER_BASE_URL + path, {
+ *   method,
+ *   headers: { Authorization: `Bearer ${process.env.LDH_KEY}`, 'Content-Type': 'application/json' },
+ *   body: body && JSON.stringify(body),
+ * })
+ * ```
+ */
+export function toLegalDataHunterRestRequest(
+  operation: LegalDataHunterOperation,
+  payload: Record<string, unknown>,
+): LegalDataHunterRestRequest {
+  switch (operation) {
+    case 'search':
+      return { method: 'POST', path: '/v1/search', body: payload.args as Record<string, unknown> }
+
+    case 'resolve':
+      return { method: 'POST', path: '/v1/resolve', body: payload.args as Record<string, unknown> }
+
+    case 'document': {
+      // `source_id` may itself contain slashes, so it goes in the query string.
+      const sourceId = asText(payload.source_id)
+      if (!sourceId) throw new Error('Legal Data Hunter needs a source_id to fetch a document.')
+      return {
+        method: 'GET',
+        path: withQuery(`/v1/documents/${sourcePath(payload.source)}`, { source_id: sourceId }),
+      }
+    }
+
+    case 'countries':
+      return { method: 'GET', path: '/v1/discover/countries' }
+
+    case 'sources': {
+      const country = asText(payload.country)
+      if (!country) throw new Error('Legal Data Hunter lists sources per country; pass one.')
+      return { method: 'GET', path: `/v1/discover/countries/${encodeURIComponent(country)}/sources` }
+    }
+
+    case 'filters':
+      return {
+        method: 'GET',
+        path: withQuery(`/v1/discover/sources/${sourcePath(payload.source)}/filters`, {
+          namespace: payload.namespace,
+        }),
+      }
+
+    case 'report-issue': {
+      const args = (payload.args ?? {}) as Record<string, unknown>
+      const { source, ...body } = args
+      return { method: 'POST', path: `/v1/sources/${sourcePath(source)}/issues`, body }
+    }
   }
 }

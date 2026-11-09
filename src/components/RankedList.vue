@@ -60,12 +60,18 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { formatScore, scorePercent, toResultEntries, type ResultEntry } from './resultEntries'
+import { formatResultValue, resultFieldValue, type ResultFieldDescriptor } from './resultFields'
 
 const props = defineProps<{
     result: unknown
     loading?: boolean
     /** Whether each result offers a "View document" action. */
     canOpenDocument?: boolean
+    /**
+     * The fields to show under each hit, in order. Omitted: the fixed set
+     * below, which suits results that carry no field catalogue.
+     */
+    columns?: ResultFieldDescriptor[]
 }>()
 
 const emit = defineEmits<{
@@ -87,6 +93,14 @@ const nextCursor = computed(() => shaped.value.nextCursor)
 
 /** The facts worth showing for a hit, skipping the ones it does not have. */
 function facts(entry: ResultEntry): { label: string; value: string }[] {
+    if (props.columns) {
+        return props.columns
+            .map((column) => ({
+                label: column.label,
+                value: formatResultValue(resultFieldValue(entry, column.key), column.type),
+            }))
+            .filter((fact) => fact.value !== '')
+    }
     const pairs: [string, string | undefined][] = [
         ['Source', entry.source],
         ['Court', entry.court],

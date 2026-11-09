@@ -479,10 +479,11 @@ The value is only ever used by the **server-side service**, which exposes
 *named operations* rather than a proxy path — a page that cannot read a
 credential could otherwise still spend it on any endpoint of the provider's API.
 
-For Legal Data Hunter specifically, the API key is the fit: its MCP endpoint
-also accepts `Authorization: Bearer <key>`, and its REST API takes the same
-bearer token, so either transport works behind the bridge. (LDH's own guidance
-is REST for web apps and MCP for agents; the key path is identical.)
+For Legal Data Hunter, the user creates a key on their LDH account page
+(Account → API Keys; keys start with `sk-`) and enters it as `LDH_KEY`. The
+server sends it to LDH's **REST API** as `Authorization: Bearer <key>`. There is
+no MCP and no OAuth in this path: LDH recommends REST for web apps and keeps MCP
+for AI agents.
 
 ### Tailoring the generated form
 
@@ -563,7 +564,7 @@ back, and takes **your** transport — it has no HTTP client and no key:
 
 ```ts
 const adapter = createLegalDataHunterAdapter({
-  // The host's server-side bridge. This is where the LDH key lives.
+  // A fetch to your own server. The LDH key lives there, not here.
   async call(operation, payload) {
     const response = await fetch(`/api/ldh/${operation}`, {
       method: 'POST',
@@ -576,15 +577,53 @@ const adapter = createLegalDataHunterAdapter({
 })
 ```
 
+On your server, `toLegalDataHunterRestRequest` turns that operation into the
+REST call, so the route only has to add the key:
+
+```ts
+// e.g. POST /api/ldh/:operation, server-side only
+import { LEGAL_DATA_HUNTER_BASE_URL, toLegalDataHunterRestRequest } from 'vue-legal-query-builder'
+
+const ALLOWED = new Set(['search', 'document', 'resolve', 'countries', 'sources', 'filters', 'report-issue'])
+
+export async function ldh(operation, payload) {
+  if (!ALLOWED.has(operation)) throw new Error('Unknown operation')
+  const { method, path, body } = toLegalDataHunterRestRequest(operation, payload)
+  const response = await fetch(LEGAL_DATA_HUNTER_BASE_URL + path, {
+    method,
+    headers: {
+      Authorization: `Bearer ${process.env.LDH_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: body && JSON.stringify(body),
+  })
+  if (!response.ok) throw new Error(`LDH ${response.status}`) // 401 bad key, 429 rate limit
+  return response.json()
+}
+```
+
+| Operation | REST call |
+|---|---|
+| `search` | `POST /v1/search` |
+| `document` | `GET /v1/documents/{country}/{source}?source_id=…` |
+| `resolve` | `POST /v1/resolve` |
+| `countries` | `GET /v1/discover/countries` |
+| `sources` | `GET /v1/discover/countries/{code}/sources` |
+| `filters` | `GET /v1/discover/sources/{country}/{source}/filters?namespace=…` |
+| `report-issue` | `POST /v1/sources/{country}/{source}/issues` |
+
+The `report-issue` path comes from LDH's MCP-to-REST table; it is not in their
+OpenAPI spec yet.
+
 ### What the mapping does
 
 - **Request**: `courtTier` becomes `court_tier` and is sent as a number; the
   `namespace` comes from the chosen database, not from the form; empty strings,
   empty lists and absent values are dropped rather than sent blank.
-- **Protocol**: the arguments are emitted in **MCP** shape (`query`,
-  `top_k`, …). The REST endpoint is the same set with `q` where this has
-  `query` — that single rename belongs to the bridge, not to the form. REST
-  also honours `court`, which the MCP `search` tool does not take.
+- **Protocol**: the search body is the REST API's (`q`, `top_k`, `alpha`,
+  `court`, …). The form field is still called `query`; the mapping renames it.
+- **Sources**: LDH lists sources per country, so source discovery returns
+  nothing until a country is chosen.
 - **Response**: hits become `NormalizedSearchHit`, with the provider's
   source-specific fields (`court`, `courtTier`, `ecli`, `caseNumber`, …) kept in
   `metadata` and the untouched payload in `raw`. Missing full text is reported
@@ -594,6 +633,31 @@ const adapter = createLegalDataHunterAdapter({
   onto `ProviderFilterSet`, which then seeds the form's option lists.
 - **Errors**: whatever `call` throws propagates, and the runtime wraps it into a
   `ProviderOperationError` with a stable code.
+
+### Which fields a result shows
+
+LDH publishes one hit schema for every source but does not say which fields a
+source fills: Judilibre has court and chamber, Légifrance has ELI, status and
+in-force dates, and most of the rest come back `null`. So the columns are
+worked out from the results, not configured up front:
+
+1. The normalizer keeps every non-empty field of a hit in `metadata`, camelCased.
+2. `LEGAL_DATA_HUNTER_RESULT_FIELDS` is the catalogue: every field LDH's
+   `SearchHit` can carry, with a label, a type (`date`, `url`, `code`, …) and
+   whether it shows by default. Each corpus carries it as
+   `defaultResultView.config.fields`.
+3. After a search, the form offers the catalogue fields present in at least one
+   hit, in catalogue order, plus any field the catalogue does not know.
+4. A **List / Table** switch and a **Fields** picker sit above the results. The
+   user's pick is kept in `localStorage` per provider, corpus and source set.
+
+Another provider gets the same behaviour by putting its own catalogue in
+`resultView.config.fields`; without one, present fields are shown under
+readable labels. The pieces are exported (`availableResultFields`,
+`resolveResultColumns`, `ResultTable`, …) for host views.
+
+The `result_detail` field (advanced) asks LDH for more per hit:
+`full_metadata` adds summary, ELI, status and the like where a source has them.
 
 The demo wires exactly this to an in-memory `call` in
 [`demo/runtimeProvider.ts`](demo/runtimeProvider.ts) — swap `call` for the
@@ -682,7 +746,8 @@ host adds a corpus without forking the package. See
 
 The form still never reaches a provider. It calls the `adapter` you mount —
 normally a thin client for **your** server, which is where a provider credential
-(e.g. Legal Data Hunter's OAuth token) lives and where an MCP bridge runs.
+(e.g. the user's Legal Data Hunter API key) lives and where the provider is
+called.
 
 ```vue
 <template>
@@ -721,10 +786,10 @@ const adapter = {
 | Responsibility | Why |
 |---|---|
 | Authenticate with the provider | The credential stays server-side |
-| Hold MCP OAuth/token state | The browser never sees a token |
-| Invoke the provider's tools | MCP/HTTP calls happen off the page |
+| Hold the API key (`LDH_KEY`) | The browser never sees it |
+| Call the provider's REST API | HTTP calls happen off the page |
 | Validate the request body | The page is untrusted input |
-| Allowlist providers and tools | A compromised page cannot widen scope |
+| Allowlist providers and operations | A compromised page cannot widen scope |
 | Normalize provider responses to `NormalizedSearchResult` etc. | One shape for the UI |
 | Map failures to `ProviderOperationError` codes | Stable errors, no transport details leaked |
 

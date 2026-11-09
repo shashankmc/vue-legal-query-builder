@@ -6,7 +6,7 @@
 - The form is generated automatically, then users may show, hide, and reorder optional fields.
 - Required fields remain fixed.
 - Build a provider-neutral core with Legal Data Hunter as the first adapter.
-- Legal Data Hunter MCP runs behind a trusted host backend.
+- Legal Data Hunter is called over its REST API by a trusted host backend, using an API key the user configures (`LDH_KEY`). No MCP, no OAuth.
 - Results use pluggable views.
 - User configuration is not persisted initially.
 - Deliver the full Legal Data Hunter tool suite incrementally.
@@ -22,21 +22,21 @@ Vue query builder
   └─ injected host adapter
           │
           ▼
-Host backend bridge
-  ├─ authentication and OAuth
-  ├─ MCP client
+Host backend
+  ├─ LDH_KEY (user-supplied API key)
+  ├─ toLegalDataHunterRestRequest
   ├─ error/rate-limit normalization
-  └─ Legal Data Hunter MCP
-       ├─ discover_countries
-       ├─ discover_sources
-       ├─ get_filters
-       ├─ search
-       ├─ get_document
-       ├─ resolve_reference
-       └─ report_source_issue
+  └─ Legal Data Hunter REST API (Authorization: Bearer <key>)
+       ├─ GET  /v1/discover/countries
+       ├─ GET  /v1/discover/countries/{code}/sources
+       ├─ GET  /v1/discover/sources/{source}/filters
+       ├─ POST /v1/search
+       ├─ GET  /v1/documents/{source}?source_id=…
+       ├─ POST /v1/resolve
+       └─ POST /v1/sources/{source}/issues
 ```
 
-The component must continue to avoid direct credential handling or direct MCP connections.
+The component must continue to avoid direct credential handling or direct provider connections.
 
 ## Current gaps
 
@@ -151,7 +151,7 @@ Update validation to detect:
 
 ## Phase 2: Runtime adapter boundary
 
-Add one injected adapter contract instead of embedding HTTP or MCP behavior:
+Add one injected adapter contract instead of embedding HTTP behavior:
 
 ```ts
 interface LegalSearchAdapter {
@@ -193,14 +193,12 @@ Existing `submit`, `success`, and `error` events remain supported.
 
 The host backend must:
 
-1. Authenticate the user with Legal Data Hunter.
-2. Maintain MCP OAuth/token state.
-3. Invoke MCP tools.
-4. Validate incoming operation payloads.
-5. Enforce allowed providers and tools.
-6. Normalize MCP content responses into JSON.
-7. Map rate limits and errors into stable error codes.
-8. Never expose MCP credentials to the browser.
+1. Hold the user's Legal Data Hunter API key (`LDH_KEY`).
+2. Send each operation to the REST API with `Authorization: Bearer <key>`.
+3. Validate incoming operation payloads.
+4. Enforce allowed providers and operations.
+5. Map rate limits (429, `Retry-After`) and errors into stable error codes.
+6. Never expose the key to the browser.
 
 ## Phase 3: Runtime provider and database selection
 
@@ -297,9 +295,9 @@ Create an LDH-specific manifest and backend mapping isolated from the generic UI
 
 ### Search form
 
-Map the LDH `search` tool into fields for:
+Map the LDH `POST /v1/search` body into fields for:
 
-- `query` — required.
+- `query` — required; sent as `q`.
 - `namespace` — case law, legislation, or doctrine.
 - `top_k` — 1–100.
 - `alpha` — 0–1.
@@ -307,12 +305,11 @@ Map the LDH `search` tool into fields for:
 - `source` — discovered after country selection.
 - `court_tier`.
 - `jurisdiction`.
-- `subdivision`.
 - `language`.
 - `date_start`.
 - `date_end`.
 
-Only expose optional parameters reported as supported by the configured LDH bridge/version. The adapter, not the Vue component, translates protocol differences such as MCP `query` versus REST `q`.
+Only expose optional parameters the REST API accepts. The adapter, not the Vue component, maps form keys onto the API's (`query` → `q`, `courtTier` → `court_tier`).
 
 ### Discovery flow
 
@@ -436,8 +433,8 @@ Expose retry timing for rate limits when supplied by the backend.
 
 ### Security
 
-- No MCP token, API key, or OAuth refresh token in browser state.
-- Backend allowlist for tools and providers.
+- No API key in browser state.
+- Backend allowlist for operations and providers.
 - Validate manifests and requests on both sides.
 - Treat provider text, snippets, and document contents as untrusted.
 - Avoid rendering provider HTML with `v-html`.
@@ -530,7 +527,7 @@ Document:
 1. Static dataset configuration.
 2. Runtime manifest configuration.
 3. Implementing `LegalSearchAdapter`.
-4. Backend MCP bridge responsibilities.
+4. Backend responsibilities (API key, REST calls).
 5. Legal Data Hunter mapping.
 6. Custom field components.
 7. Custom result views.
@@ -581,4 +578,4 @@ Coordinated shared-contract changes:
 
 ## Definition of done
 
-The work is complete when an end user can select Legal Data Hunter, choose a corpus/country/source, tailor optional fields, run a search through a backend MCP bridge, render normalized results through a chosen view, retrieve documents, resolve references, and report source issues—without exposing credentials or breaking existing RS/ECHR consumers.
+The work is complete when an end user can select Legal Data Hunter, choose a corpus/country/source, tailor optional fields, run a search through the host backend using their LDH API key, render normalized results through a chosen view, retrieve documents, resolve references, and report source issues—without exposing credentials or breaking existing RS/ECHR consumers.
