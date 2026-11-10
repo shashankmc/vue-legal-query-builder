@@ -1,5 +1,9 @@
 # Plan: Runtime-Configurable Legal Search Builder
 
+> **Status:** implemented on `feat/runtime-configurable-search`. This is the plan
+> the work followed. For how to use Legal Data Hunter from an application, see
+> [the README](../README.md#using-it-in-an-application).
+
 ## Confirmed direction
 
 - End users select a provider/database at runtime.

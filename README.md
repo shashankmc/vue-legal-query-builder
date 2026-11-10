@@ -10,22 +10,38 @@ npm install vue-legal-query-builder
 
 ## Demo / validation
 
-A self-contained demo app exercises every feature, old and new, with a stubbed
-in-memory backend so it runs with no token and no network:
+A demo app exercises every feature. By default it runs on in-memory sample data,
+so it needs no key and makes no network calls:
 
 ```bash
 npm install
 npm run demo        # dev server at http://localhost:5173
-npm run build:demo  # static build to dist-demo/
+npm run build:demo  # static build to dist-demo/ (sample data only)
 ```
 
-The page lets you switch:
+The page has two entries:
 
-- **Mode** — free form and guided form;
-- **Guided structure** — a realistic search, every block type, or a
-  BlueLab-style structure with custom fields;
-- **Datasets** — the built-ins, or a host-supplied list (the new seam);
-- **onSearchLaws / onSubmit** — on or off, to see behaviour without them.
+- **Query builder** (`#builder`): the Case Law Explorer datasets, the free and
+  guided forms, and BlueLab-style custom fields. You can switch the mode, the
+  guided structure, built-in or host-supplied datasets, and whether
+  `onSearchLaws` / `onSubmit` are wired.
+- **Legal Data Hunter** (`#ldh`): the provider runtime. **Data** chooses
+  *Sample data* (no API calls) or *Live API*, which sends real requests with
+  your key.
+
+To try the live API, put your key in a git-ignored `.env.local` at the package
+root and restart the demo:
+
+```bash
+cp .env.example .env.local     # then set LDH_KEY=sk-…
+sh scripts/set-ldh-key.sh      # or: prompts for the key without echoing it
+```
+
+`scripts/receive-ldh-key.mjs` does the same from a phone. It serves a one-time
+form on this machine's Tailscale address and writes the key through
+`set-ldh-key.sh`. The demo's dev server reads the key in Node
+([`demo/ldhBridge.ts`](demo/ldhBridge.ts)) and never sends it to the page.
+Issue reports stay off unless `LDH_ALLOW_ISSUE_REPORTS=1`.
 
 Every `@submit`, `@success` and `@error` is shown on the page and in the
 console, so the host contract is visible while you click. See `demo/`.
@@ -545,62 +561,159 @@ answered "no" — the case the older helper got wrong.
 
 ## Legal Data Hunter
 
-Legal Data Hunter is the first provider we ship a description for. Three things
-come with it, all pure:
+[Legal Data Hunter](https://legaldatahunter.com) (LDH) is the first provider
+with a built-in description. With it, an application gets a search form for
+LDH's case law, legislation and doctrine, country and source pickers fed by
+LDH's discovery API, a results list or table that shows the fields each source
+fills, document viewing and citation resolution.
 
-```ts
-import {
-  legalDataHunterManifest,     // the manifest a form renders
-  createLegalDataHunterAdapter // request/response mapping + your transport
-} from 'vue-legal-query-builder'
+The package **builds** every LDH request and **never sends one**. The LDH key is
+a secret, and anything a Vue component holds ends up in the browser. So an
+application provides one small server route that holds the key; the package
+supplies everything else, on both sides of that route:
+
+```text
+browser                                  your server                      LDH
+LegalDocsForm ─ adapter.call(op, payload) ─▶ POST /api/ldh/:op ─ Bearer key ─▶ /v1/…
+  legalDataHunterManifest                     toLegalDataHunterRestRequest
+  createLegalDataHunterAdapter                LEGAL_DATA_HUNTER_BASE_URL
 ```
 
-`legalDataHunterManifest` declares the provider, its three corpora (case law,
-legislation, doctrine), each corpus's fields, and the credential requirement.
-Point `manifest` at it and the form renders itself.
+### Using it in an application
 
-`createLegalDataHunterAdapter` maps the generic shapes onto the provider's and
-back, and takes **your** transport — it has no HTTP client and no key:
+**1. Install.** Vue 3.4+ is a peer dependency.
+
+```bash
+npm install vue-legal-query-builder
+```
+
+**2. Get a key and give it to your server.** Each user or deployment creates a
+key on their LDH account page (Account → API Keys; keys start with `sk-`). Set
+it as an environment variable on the **server** only, e.g. `LDH_KEY=sk-…`.
+Never put it in a `VITE_*` / `NUXT_PUBLIC_*` variable or in a component prop:
+those are compiled into the page.
+
+**3. Add the server route.** It allowlists operations, turns each into the REST
+call, adds the key, and passes LDH's status through so the form can explain a
+bad key or a rate limit. The package's entry is safe to import in Node.
 
 ```ts
+// server/ldh.ts (server-side only)
+import {
+  LEGAL_DATA_HUNTER_BASE_URL,
+  toLegalDataHunterRestRequest,
+  type LegalDataHunterOperation,
+} from 'vue-legal-query-builder'
+
+// Leave out 'report-issue' unless you want users filing tickets with LDH.
+const OPERATIONS = new Set<string>(['search', 'document', 'resolve', 'countries', 'sources', 'filters'])
+
+/** Runs one LDH operation. Returns the status and JSON body to send back. */
+export async function callLegalDataHunter(operation: string, payload: unknown) {
+  if (!OPERATIONS.has(operation)) return { status: 404, body: { error: `Unknown operation "${operation}"` } }
+
+  let rest
+  try {
+    rest = toLegalDataHunterRestRequest(operation as LegalDataHunterOperation, payload as Record<string, unknown>)
+  } catch (error) {
+    return { status: 400, body: { error: (error as Error).message } } // e.g. a document without source_id
+  }
+
+  const response = await fetch(LEGAL_DATA_HUNTER_BASE_URL + rest.path, {
+    method: rest.method,
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${process.env.LDH_KEY}`,
+      ...(rest.body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: rest.body ? JSON.stringify(rest.body) : undefined,
+  })
+
+  if (!response.ok) {
+    // 401: missing or wrong key. 429: rate limited, Retry-After says when to try again.
+    return {
+      status: response.status,
+      body: {
+        error: `Legal Data Hunter answered ${response.status}`,
+        retryAfter: response.headers.get('retry-after') ?? undefined,
+      },
+    }
+  }
+  return { status: 200, body: await response.json() }
+}
+```
+
+Mount it on whatever server you have:
+
+```ts
+// Express
+app.post('/api/ldh/:operation', express.json(), async (req, res) => {
+  const { status, body } = await callLegalDataHunter(req.params.operation, req.body)
+  res.status(status).json(body)
+})
+
+// Nuxt / Nitro: server/api/ldh/[operation].post.ts
+export default defineEventHandler(async (event) => {
+  const { status, body } = await callLegalDataHunter(getRouterParam(event, 'operation')!, await readBody(event))
+  setResponseStatus(event, status)
+  return body
+})
+```
+
+Put your own authentication and rate limiting in front of the route if the page
+is public: anyone who can reach it can spend the key's quota.
+
+**4. Point the form at it.**
+
+```vue
+<template>
+  <LegalDocsForm :manifest="legalDataHunterManifest" :adapter="adapter" />
+</template>
+
+<script setup lang="ts">
+import {
+  LegalDocsForm,
+  legalDataHunterManifest,
+  createLegalDataHunterAdapter,
+} from 'vue-legal-query-builder'
+import 'vue-legal-query-builder/style.css'
+
 const adapter = createLegalDataHunterAdapter({
-  // A fetch to your own server. The LDH key lives there, not here.
   async call(operation, payload) {
     const response = await fetch(`/api/ldh/${operation}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     })
-    if (!response.ok) throw new Error(await response.text())
-    return response.json()
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`)
+    return body
   },
 })
+</script>
 ```
 
-On your server, `toLegalDataHunterRestRequest` turns that operation into the
-REST call, so the route only has to add the key:
+That is the whole integration. The form renders LDH's three corpora, fills the
+country, source, court and other option lists from discovery, runs searches,
+and offers *View document* and *Resolve a citation*. A thrown error is shown in
+the form as a `ProviderOperationError`, and `@operation-error` lets you react to
+it.
 
-```ts
-// e.g. POST /api/ldh/:operation, server-side only
-import { LEGAL_DATA_HUNTER_BASE_URL, toLegalDataHunterRestRequest } from 'vue-legal-query-builder'
+**Limits.** LDH's free tier allows 10 calls a minute, 20 a day and 600 a month;
+past that it answers `429` with `Retry-After`. Discovery (`countries`,
+`sources`, `filters`) works without a key; everything else needs one.
 
-const ALLOWED = new Set(['search', 'document', 'resolve', 'countries', 'sources', 'filters', 'report-issue'])
+**Optional pieces:**
 
-export async function ldh(operation, payload) {
-  if (!ALLOWED.has(operation)) throw new Error('Unknown operation')
-  const { method, path, body } = toLegalDataHunterRestRequest(operation, payload)
-  const response = await fetch(LEGAL_DATA_HUNTER_BASE_URL + path, {
-    method,
-    headers: {
-      Authorization: `Bearer ${process.env.LDH_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: body && JSON.stringify(body),
-  })
-  if (!response.ok) throw new Error(`LDH ${response.status}`) // 401 bad key, 429 rate limit
-  return response.json()
-}
-```
+- Your own provider list: spread `legalDataHunterManifest` into a manifest of
+  your own, as [`demo/runtimeProvider.ts`](demo/runtimeProvider.ts) does.
+- Your own result layout: pass `result-views`; see [Result views](#result-views).
+- Driving it from code: `useLegalSearchRuntime({ manifest, adapter })`; see
+  [Driving the form in code](#driving-the-form-in-code).
+- Telling an operator what to configure: `buildDependencyScaffold` prints the
+  `LDH_KEY=` line the manifest declares; see [Credentials](#credentials).
+
+### Operations
 
 | Operation | REST call |
 |---|---|
@@ -612,8 +725,10 @@ export async function ldh(operation, payload) {
 | `filters` | `GET /v1/discover/sources/{country}/{source}/filters?namespace=…` |
 | `report-issue` | `POST /v1/sources/{country}/{source}/issues` |
 
-The `report-issue` path comes from LDH's MCP-to-REST table; it is not in their
-OpenAPI spec yet.
+`search`, `document`, `resolve` and the three discovery calls have been checked
+against the live API. The `report-issue` path comes from LDH's MCP-to-REST
+table; it is not in their OpenAPI spec yet and has not been called, so the
+example route above leaves it out.
 
 ### What the mapping does
 
@@ -659,9 +774,9 @@ readable labels. The pieces are exported (`availableResultFields`,
 The `result_detail` field (advanced) asks LDH for more per hit:
 `full_metadata` adds summary, ELI, status and the like where a source has them.
 
-The demo wires exactly this to an in-memory `call` in
-[`demo/runtimeProvider.ts`](demo/runtimeProvider.ts) — swap `call` for the
-`fetch` above and it is talking to a real bridge.
+The demo wires the same adapter to two `call`s in
+[`demo/runtimeProvider.ts`](demo/runtimeProvider.ts): an in-memory one for
+sample data, and a `fetch` to the dev server's bridge for the live API.
 
 ### Result views
 
@@ -735,6 +850,8 @@ Switching provider or database closes the document and clears the resolution.
 ## Requirements
 
 - Vue 3.4 or higher
+- `legal-retrieval-types`, a dependency of this package that holds the
+  provider contracts the runtime imports.
 
 ## Provider-agnostic runtime
 
