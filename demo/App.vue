@@ -5,9 +5,23 @@
       <p>Interactive demo &amp; validation harness — every feature, old and new.</p>
     </header>
 
+    <!-- Two unrelated things live in this package: the query builder with its
+         datasets and guided forms, and the provider runtime Legal Data Hunter
+         plugs into. Each is its own entry, with only its own settings. -->
+    <nav class="entries" aria-label="Demo entries">
+      <a href="#builder" class="entry" :aria-current="entry === 'builder' ? 'page' : undefined">
+        <strong>Query builder</strong>
+        <small>Case Law Explorer datasets, guided forms, BlueLab fields</small>
+      </a>
+      <a href="#ldh" class="entry" :aria-current="entry === 'ldh' ? 'page' : undefined">
+        <strong>Legal Data Hunter</strong>
+        <small>Provider runtime: discovery, search, result fields, documents</small>
+      </a>
+    </nav>
+
     <section class="panel">
       <h2>1. Configure the form</h2>
-      <div class="controls">
+      <div v-if="entry === 'builder'" class="controls">
         <label>
           Mode
           <select v-model="mode">
@@ -34,18 +48,6 @@
           </select>
         </label>
 
-        <label>
-          Provider runtime
-          <select v-model="runtimeKey">
-            <option value="off">Off (datasets / guided structure)</option>
-            <option value="ldh">Legal Data Hunter manifest (runtime, stub data)</option>
-            <option value="ldh-live">Legal Data Hunter — live API</option>
-          </select>
-          <small v-if="runtimeKey === 'ldh-live'" class="hint">
-            {{ liveStatusText }}
-          </small>
-        </label>
-
         <label class="check">
           <input type="checkbox" v-model="withLawSearch" />
           Provide <code>onSearchLaws</code>
@@ -64,6 +66,22 @@
         <label>
           Title
           <input v-model="title" type="text" />
+        </label>
+      </div>
+
+      <div v-else class="controls">
+        <label>
+          Data
+          <select v-model="ldhSource">
+            <option value="stub">Sample data (no API calls)</option>
+            <option value="live">Live API (uses your LDH key)</option>
+          </select>
+          <small v-if="ldhSource === 'live'" class="hint">{{ liveStatusText }}</small>
+        </label>
+
+        <label class="check">
+          <input type="checkbox" v-model="customResultView" />
+          Register a custom result view
         </label>
       </div>
     </section>
@@ -112,7 +130,7 @@
 
     <section class="panel">
       <h2>What this validates</h2>
-      <table class="matrix">
+      <table v-if="entry === 'builder'" class="matrix">
         <thead>
           <tr><th>Feature</th><th>Where</th><th>Status</th></tr>
         </thead>
@@ -126,10 +144,21 @@
           <tr><td>Host-supplied dataset (generic payload)</td><td>Datasets = BlueLab…</td><td class="new">new seam</td></tr>
           <tr><td>Backward compatibility (no props ⇒ unchanged)</td><td>Datasets = Built-ins</td><td class="new">new seam</td></tr>
           <tr><td>Host-defined field set, no fork</td><td>Structure = BlueLab-style</td><td class="new">new seam</td></tr>
-          <tr><td>Provider runtime (manifest + adapter)</td><td>Provider runtime = Legal Data Hunter</td><td class="new">new seam</td></tr>
-          <tr><td>Runtime discovery (country → source → filters)</td><td>Provider runtime = Legal Data Hunter</td><td class="new">new seam</td></tr>
           <tr><td>Pluggable result view (host registry)</td><td>Register a custom result view</td><td class="new">new seam</td></tr>
-          <tr><td>Document retrieval, citation resolve, issue report</td><td>Provider runtime = Legal Data Hunter</td><td class="new">new seam</td></tr>
+        </tbody>
+      </table>
+      <table v-else class="matrix">
+        <thead>
+          <tr><th>Feature</th><th>Where</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Provider runtime (manifest + adapter)</td><td>Provider and corpus pickers</td><td class="new">new</td></tr>
+          <tr><td>Discovery (country → source → filters)</td><td>Country, then Sources</td><td class="new">new</td></tr>
+          <tr><td>Result fields follow the sources</td><td>Fields picker above results</td><td class="new">new</td></tr>
+          <tr><td>List / table layout, remembered</td><td>List · Table switch</td><td class="new">new</td></tr>
+          <tr><td>Document retrieval, citation resolve</td><td>View document · Resolve</td><td class="new">new</td></tr>
+          <tr><td>Live REST API, key kept server-side</td><td>Data = Live API</td><td class="new">new</td></tr>
+          <tr><td>Pluggable result view (host registry)</td><td>Register a custom result view</td><td class="new">new</td></tr>
         </tbody>
       </table>
     </section>
@@ -147,7 +176,16 @@ import CustomResultView from './CustomResultView.vue'
 const mode = ref<'free' | 'guided'>('guided')
 const structureKey = ref<'realistic' | 'allBlocks' | 'bluelab'>('realistic')
 const datasetKey = ref<'builtin' | 'builtin-bluelab' | 'bluelab-only'>('builtin')
-const runtimeKey = ref<'off' | 'ldh' | 'ldh-live'>('off')
+// Which demo entry is open, from the URL hash so a link can open either one.
+type Entry = 'builder' | 'ldh'
+const entryFromHash = (): Entry => (location.hash === '#ldh' ? 'ldh' : 'builder')
+const entry = ref<Entry>(entryFromHash())
+window.addEventListener('hashchange', () => (entry.value = entryFromHash()))
+
+const ldhSource = ref<'stub' | 'live'>('stub')
+const runtimeKey = computed<'off' | 'ldh' | 'ldh-live'>(() =>
+  entry.value !== 'ldh' ? 'off' : ldhSource.value === 'live' ? 'ldh-live' : 'ldh',
+)
 const liveStatusText = ref('Checking the dev server…')
 watch(runtimeKey, async (key) => {
   if (key !== 'ldh-live') return
@@ -253,6 +291,32 @@ body {
 .demo-header p {
   margin: 0 0 16px;
   color: var(--muted);
+}
+.entries {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.entry {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  text-decoration: none;
+}
+.entry small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.entry[aria-current='page'] {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: #eff6ff;
 }
 .panel {
   background: #fff;
