@@ -2,7 +2,7 @@
     <TextAreaInput
         fieldId="facts-input"
         :value="facts"
-        @update:value="emit('update:facts', $event)"
+        @update:value="emit('update:facts', $event ?? '')"
         :placeholder="placeholder || ''"
         label="Facts"
     />

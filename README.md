@@ -10,22 +10,38 @@ npm install vue-legal-query-builder
 
 ## Demo / validation
 
-A self-contained demo app exercises every feature, old and new, with a stubbed
-in-memory backend so it runs with no token and no network:
+A demo app exercises every feature. By default it runs on in-memory sample data,
+so it needs no key and makes no network calls:
 
 ```bash
 npm install
 npm run demo        # dev server at http://localhost:5173
-npm run build:demo  # static build to dist-demo/
+npm run build:demo  # static build to dist-demo/ (sample data only)
 ```
 
-The page lets you switch:
+The page has two entries:
 
-- **Mode** — free form and guided form;
-- **Guided structure** — a realistic search, every block type, or a
-  BlueLab-style structure with custom fields;
-- **Datasets** — the built-ins, or a host-supplied list (the new seam);
-- **onSearchLaws / onSubmit** — on or off, to see behaviour without them.
+- **Query builder** (`#builder`): the Case Law Explorer datasets, the free and
+  guided forms, and BlueLab-style custom fields. You can switch the mode, the
+  guided structure, built-in or host-supplied datasets, and whether
+  `onSearchLaws` / `onSubmit` are wired.
+- **Legal Data Hunter** (`#ldh`): the provider runtime. **Data** chooses
+  *Sample data* (no API calls) or *Live API*, which sends real requests with
+  your key.
+
+To try the live API, put your key in a git-ignored `.env.local` at the package
+root and restart the demo:
+
+```bash
+cp .env.example .env.local     # then set LDH_KEY=sk-…
+sh scripts/set-ldh-key.sh      # or: prompts for the key without echoing it
+```
+
+`scripts/receive-ldh-key.mjs` does the same from a phone. It serves a one-time
+form on this machine's Tailscale address and writes the key through
+`set-ldh-key.sh`. The demo's dev server reads the key in Node
+([`demo/ldhBridge.ts`](demo/ldhBridge.ts)) and never sends it to the page.
+Issue reports stay off unless `LDH_ALLOW_ISSUE_REPORTS=1`.
 
 Every `@submit`, `@success` and `@error` is shown on the page and in the
 console, so the host contract is visible while you click. See `demo/`.
@@ -290,8 +306,18 @@ Also exported:
 | `type` | 'free' \| 'guided' | 'free' | Form type (FreeForm or GuidedForm) |
 | `title` | string | undefined | Form title (optional) |
 | `subtitle` | string | undefined | Form subtitle (optional) |
+| `datasets` | DatasetDescriptor[] | undefined | Datasets the picker offers. Omit for the built-ins (RS / ECHR / disabled CJEU) |
 | `guidedStructure` | GuidedStructure | undefined | Structure to render in guided mode. Takes precedence over `guidedTemplate` |
 | `guidedTemplate` | GuidedTemplateId | undefined | Id of a [built-in template](#built-in-templates), used when no `guidedStructure` is given |
+| `onSubmit` | (query: LegalDocsQuery) => Promise<any> | undefined | Your server's search endpoint |
+| `onSearchLaws` | (query: string) => Promise<BWBItem[]> | undefined | Your server's law-name lookup |
+| `manifest` | QueryBuilderManifest | undefined | A provider/database manifest that switches the form onto the [runtime path](#provider-agnostic-runtime) |
+| `loadManifest` | () => Promise<QueryBuilderManifest> | undefined | Fetch the manifest when none is passed |
+| `adapter` | LegalSearchAdapter | undefined | The host's provider adapter; submitting routes the query through it |
+| `initialProvider` | string | undefined | Provider selected on mount |
+| `initialDatabase` | string | undefined | Database selected on mount |
+| `fieldComponents` | Record<string, Component> | undefined | Custom field components, keyed by `FieldDescriptor.block` |
+| `resultViews` | Record<string, Component> | undefined | Custom result views, keyed by `ResultViewRef.kind` |
 
 ## Events
 
@@ -300,6 +326,12 @@ Also exported:
 | `@submit` | LegalDocsQuery | Emitted when form is submitted and data is valid. `LegalDocsQuery` is `{ dataset: 'RS', params: RechtspraakQueryParameters } \| { dataset: 'ECHR', params: EchrQueryParameters }` |
 | `@success` | any | Emitted when search completes successfully |
 | `@error` | Error | Emitted when an error occurs |
+| `@provider-change` | string \| undefined | Emitted when the active provider changes |
+| `@database-change` | string \| undefined | Emitted when the active database changes |
+| `@configuration-change` | ResolvedLegalSearchConfig | Emitted when a manifest resolves into the runtime config |
+| `@operation-start` | (operation: string, detail?: unknown) | Emitted before an adapter operation runs |
+| `@operation-success` | (operation: string, result: unknown) | Emitted when an adapter operation succeeds |
+| `@operation-error` | (operation: string, error: Error) | Emitted when an adapter operation fails |
 
 ## Form-Specific Behaviors
 
@@ -389,9 +421,546 @@ const guidedStructure = {
 
 Each step in the GuidedForm stepper displays its title below the numbered indicator, providing users with a quick overview of what each step entails.
 
+## Credentials
+
+**This package never holds one.** There is no API-key prop, no key input, and
+nothing reads `import.meta.env` — a bundler inlines `VITE_*` at build time, so a
+key read that way would be compiled into the published bundle. The host's
+`adapter` is the only thing that talks to a provider, and it points at your
+server.
+
+What this package does do is **declare** that a provider needs a credential, so
+a host can render the field and an operator can be told what to set. A provider
+method carries a `DependencyDescriptor` with `kind: 'credential'`:
+
+```ts
+{
+  id: 'ldh',
+  label: 'Legal Data Hunter',
+  type: 'legal-data-hunter',
+  methods: [
+    {
+      id: 'search',
+      label: 'Hybrid semantic + keyword search',
+      dependencies: [
+        {
+          id: 'ldh-key',
+          label: 'Legal Data Hunter API key',
+          kind: 'credential',
+          configKeys: ['LDH_KEY'],
+        },
+      ],
+    },
+  ],
+}
+```
+
+Three helpers turn that declaration into something an operator can act on —
+`requiredDependencies`, `unmetDependencies` and `buildDependencyScaffold`, all
+re-exported here:
+
+```ts
+import { buildDependencyScaffold } from 'vue-legal-query-builder'
+
+// # Backend configuration required by retrieval methods.
+// # Fill in the values and give them to your service.
+//
+// # Method: Hybrid semantic + keyword search (search)
+// #   - Legal Data Hunter API key [credential]
+// LDH_KEY=
+```
+
+### Where the key actually lives
+
+In [legal-blocks](https://github.com/MaastrichtU-BISS/legal-blocks) the key is a
+**secret config field on the module**, and the pipeline machinery keeps it out
+of everything readable:
+
+```text
+  composer form                          the user types the key here, once
+       |  export
+       v
+  splitSecrets(pipeline)
+       |---> pipeline.json    the design — safe to read, copy, commit
+       +---> credentials.json the one file in the zip that is not
+                    |
+                    v
+       platform reads it at request time   and an env var wins over the file
+                    |
+                    v
+                    the provider, and nowhere else
+```
+
+The value is only ever used by the **server-side service**, which exposes
+*named operations* rather than a proxy path — a page that cannot read a
+credential could otherwise still spend it on any endpoint of the provider's API.
+
+For Legal Data Hunter, the user creates a key on their LDH account page
+(Account → API Keys; keys start with `sk-`) and enters it as `LDH_KEY`. The
+server sends it to LDH's **REST API** as `Authorization: Bearer <key>`. There is
+no MCP and no OAuth in this path: LDH recommends REST for web apps and keeps MCP
+for AI agents.
+
+### Tailoring the generated form
+
+When the manifest sets `features.allowFieldCustomization`, the form shows a
+**Customize fields** panel. A user can:
+
+- show or hide **optional** fields;
+- reorder them — moving a field only ever moves it past other optional fields;
+- reset the layout to the provider's default;
+- fold away the fields marked `advanced` behind a toggle.
+
+They **cannot** hide a required field, rename its key, weaken its validation,
+inject markup or a component, or touch transport or credentials. A required
+field is pinned by the provider contract, and the panel shows it as locked.
+
+Layout is per database and lives in memory only — switching databases keeps each
+one's answers and layout, and nothing is persisted. Hidden advanced fields still
+contribute their values and defaults to the query, so a fold-away `alpha` still
+reaches the provider.
+
+### Host field components
+
+`fieldComponents` registers your own components, keyed by
+`FieldDescriptor.block` (or `control`). Each is resolved in order:
+
+1. your component for `field.block`
+2. your component for `field.control`
+3. the built-in block named by `field.block`
+4. the generic renderer for `field.control`
+5. an honest "unsupported field" note
+
+```vue
+<LegalDocsForm
+  :manifest="manifest"
+  :adapter="adapter"
+  :field-components="{ CitationInput }"
+/>
+```
+
+A host component receives `field`, `modelValue`, `disabled` and `error`, and
+emits `update:modelValue`.
+
+### Validation
+
+Schema-driven, and checked against the fields actually on screen — a user is
+never blocked by a field they cannot see:
+
+| Rule | Fields |
+|---|---|
+| `required` | any |
+| `min` / `max` | `number`, `range`, and `date` (as ISO bounds) |
+| `minLength` / `maxLength` | `text`, `textarea` |
+| `minItems` / `maxItems` | `multiselect` and any `multiple` field |
+| option membership | fields declaring `options` |
+| `dependencies` | fields gated on a sibling's value |
+
+A boolean field is answered by **either** boolean, so a required boolean can be
+answered "no" — the case the older helper got wrong.
+
+## Legal Data Hunter
+
+[Legal Data Hunter](https://legaldatahunter.com) (LDH) is the first provider
+with a built-in description. With it, an application gets a search form for
+LDH's case law, legislation and doctrine, country and source pickers fed by
+LDH's discovery API, a results list or table that shows the fields each source
+fills, document viewing and citation resolution.
+
+The package **builds** every LDH request and **never sends one**. The LDH key is
+a secret, and anything a Vue component holds ends up in the browser. So an
+application provides one small server route that holds the key; the package
+supplies everything else, on both sides of that route:
+
+```text
+browser                                  your server                      LDH
+LegalDocsForm ─ adapter.call(op, payload) ─▶ POST /api/ldh/:op ─ Bearer key ─▶ /v1/…
+  legalDataHunterManifest                     toLegalDataHunterRestRequest
+  createLegalDataHunterAdapter                LEGAL_DATA_HUNTER_BASE_URL
+```
+
+### Using it in an application
+
+**1. Install.** Vue 3.4+ is a peer dependency.
+
+```bash
+npm install vue-legal-query-builder
+```
+
+**2. Get a key and give it to your server.** Each user or deployment creates a
+key on their LDH account page (Account → API Keys; keys start with `sk-`). Set
+it as an environment variable on the **server** only, e.g. `LDH_KEY=sk-…`.
+Never put it in a `VITE_*` / `NUXT_PUBLIC_*` variable or in a component prop:
+those are compiled into the page.
+
+**3. Add the server route.** It allowlists operations, turns each into the REST
+call, adds the key, and passes LDH's status through so the form can explain a
+bad key or a rate limit. The package's entry is safe to import in Node.
+
+```ts
+// server/ldh.ts (server-side only)
+import {
+  LEGAL_DATA_HUNTER_BASE_URL,
+  toLegalDataHunterRestRequest,
+  type LegalDataHunterOperation,
+} from 'vue-legal-query-builder'
+
+// Leave out 'report-issue' unless you want users filing tickets with LDH.
+const OPERATIONS = new Set<string>(['search', 'document', 'resolve', 'countries', 'sources', 'filters'])
+
+/** Runs one LDH operation. Returns the status and JSON body to send back. */
+export async function callLegalDataHunter(operation: string, payload: unknown) {
+  if (!OPERATIONS.has(operation)) return { status: 404, body: { error: `Unknown operation "${operation}"` } }
+
+  let rest
+  try {
+    rest = toLegalDataHunterRestRequest(operation as LegalDataHunterOperation, payload as Record<string, unknown>)
+  } catch (error) {
+    return { status: 400, body: { error: (error as Error).message } } // e.g. a document without source_id
+  }
+
+  const response = await fetch(LEGAL_DATA_HUNTER_BASE_URL + rest.path, {
+    method: rest.method,
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${process.env.LDH_KEY}`,
+      ...(rest.body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: rest.body ? JSON.stringify(rest.body) : undefined,
+  })
+
+  if (!response.ok) {
+    // 401: missing or wrong key. 429: rate limited, Retry-After says when to try again.
+    return {
+      status: response.status,
+      body: {
+        error: `Legal Data Hunter answered ${response.status}`,
+        retryAfter: response.headers.get('retry-after') ?? undefined,
+      },
+    }
+  }
+  return { status: 200, body: await response.json() }
+}
+```
+
+Mount it on whatever server you have:
+
+```ts
+// Express
+app.post('/api/ldh/:operation', express.json(), async (req, res) => {
+  const { status, body } = await callLegalDataHunter(req.params.operation, req.body)
+  res.status(status).json(body)
+})
+
+// Nuxt / Nitro: server/api/ldh/[operation].post.ts
+export default defineEventHandler(async (event) => {
+  const { status, body } = await callLegalDataHunter(getRouterParam(event, 'operation')!, await readBody(event))
+  setResponseStatus(event, status)
+  return body
+})
+```
+
+Put your own authentication and rate limiting in front of the route if the page
+is public: anyone who can reach it can spend the key's quota.
+
+**4. Point the form at it.**
+
+```vue
+<template>
+  <LegalDocsForm :manifest="legalDataHunterManifest" :adapter="adapter" />
+</template>
+
+<script setup lang="ts">
+import {
+  LegalDocsForm,
+  legalDataHunterManifest,
+  createLegalDataHunterAdapter,
+} from 'vue-legal-query-builder'
+import 'vue-legal-query-builder/style.css'
+
+const adapter = createLegalDataHunterAdapter({
+  async call(operation, payload) {
+    const response = await fetch(`/api/ldh/${operation}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`)
+    return body
+  },
+})
+</script>
+```
+
+That is the whole integration. The form renders LDH's three corpora, fills the
+country, source, court and other option lists from discovery, runs searches,
+and offers *View document* and *Resolve a citation*. A thrown error is shown in
+the form as a `ProviderOperationError`, and `@operation-error` lets you react to
+it.
+
+**Limits.** LDH's free tier allows 10 calls a minute, 20 a day and 600 a month;
+past that it answers `429` with `Retry-After`. Discovery (`countries`,
+`sources`, `filters`) works without a key; everything else needs one.
+
+**Optional pieces:**
+
+- Your own provider list: spread `legalDataHunterManifest` into a manifest of
+  your own, as [`demo/runtimeProvider.ts`](demo/runtimeProvider.ts) does.
+- Your own result layout: pass `result-views`; see [Result views](#result-views).
+- Driving it from code: `useLegalSearchRuntime({ manifest, adapter })`; see
+  [Driving the form in code](#driving-the-form-in-code).
+- Telling an operator what to configure: `buildDependencyScaffold` prints the
+  `LDH_KEY=` line the manifest declares; see [Credentials](#credentials).
+
+### Operations
+
+| Operation | REST call |
+|---|---|
+| `search` | `POST /v1/search` |
+| `document` | `GET /v1/documents/{country}/{source}?source_id=…` |
+| `resolve` | `POST /v1/resolve` |
+| `countries` | `GET /v1/discover/countries` |
+| `sources` | `GET /v1/discover/countries/{code}/sources` |
+| `filters` | `GET /v1/discover/sources/{country}/{source}/filters?namespace=…` |
+| `report-issue` | `POST /v1/sources/{country}/{source}/issues` |
+
+`search`, `document`, `resolve` and the three discovery calls have been checked
+against the live API. The `report-issue` path comes from LDH's MCP-to-REST
+table; it is not in their OpenAPI spec yet and has not been called, so the
+example route above leaves it out.
+
+### What the mapping does
+
+- **Request**: `courtTier` becomes `court_tier` and is sent as a number; the
+  `namespace` comes from the chosen database, not from the form; empty strings,
+  empty lists and absent values are dropped rather than sent blank.
+- **Protocol**: the search body is the REST API's (`q`, `top_k`, `alpha`,
+  `court`, …). The form field is still called `query`; the mapping renames it.
+- **Sources**: LDH lists sources per country, so source discovery returns
+  nothing until a country is chosen.
+- **Response**: hits become `NormalizedSearchHit`, with the provider's
+  source-specific fields (`court`, `courtTier`, `ecli`, `caseNumber`, …) kept in
+  `metadata` and the untouched payload in `raw`. Missing full text is reported
+  as a warning rather than a failure.
+- **Discovery**: `discoverCountries`, `discoverSources` and `getFilters`
+  normalize the provider's snake_case answers (`decision_types`, `court_tiers`)
+  onto `ProviderFilterSet`, which then seeds the form's option lists.
+- **Errors**: whatever `call` throws propagates, and the runtime wraps it into a
+  `ProviderOperationError` with a stable code.
+
+### Which fields a result shows
+
+LDH publishes one hit schema for every source but does not say which fields a
+source fills: Judilibre has court and chamber, Légifrance has ELI, status and
+in-force dates, and most of the rest come back `null`. So the columns are
+worked out from the results, not configured up front:
+
+1. The normalizer keeps every non-empty field of a hit in `metadata`, camelCased.
+2. `LEGAL_DATA_HUNTER_RESULT_FIELDS` is the catalogue: every field LDH's
+   `SearchHit` can carry, with a label, a type (`date`, `url`, `code`, …) and
+   whether it shows by default. Each corpus carries it as
+   `defaultResultView.config.fields`.
+3. After a search, the form offers the catalogue fields present in at least one
+   hit, in catalogue order, plus any field the catalogue does not know.
+4. A **List / Table** switch and a **Fields** picker sit above the results. The
+   user's pick is kept in `localStorage` per provider, corpus and source set.
+
+Another provider gets the same behaviour by putting its own catalogue in
+`resultView.config.fields`; without one, present fields are shown under
+readable labels. The pieces are exported (`availableResultFields`,
+`resolveResultColumns`, `ResultTable`, …) for host views.
+
+The `result_detail` field (advanced) asks LDH for more per hit:
+`full_metadata` adds summary, ELI, status and the like where a source has them.
+
+The demo wires the same adapter to two `call`s in
+[`demo/runtimeProvider.ts`](demo/runtimeProvider.ts): an in-memory one for
+sample data, and a `fetch` to the dev server's bridge for the live API.
+
+### Result views
+
+A result is rendered by the first of these that exists:
+
+1. a **host view** from `resultViews`, looked up by the kind the database's
+   `defaultResultView` names;
+2. the **`#results` slot**;
+3. the **built-in** view for that kind (`ranked-list`);
+4. in development, a raw JSON dump; in production, a line saying no view is
+   registered for that kind.
+
+```vue
+<LegalDocsForm
+  :manifest="manifest"
+  :adapter="adapter"
+  :result-views="{ 'ranked-list': MyTableView }"
+/>
+```
+
+A host view receives `result` (whatever the search returned), `resultView` and
+`loading`, and emits `load-more`. It does not have to understand the payload
+itself — `toResultEntries(result)` flattens a normalized provider result, a bare
+array of hits, or the older provisions-style `{ documents: […] }` into the same
+`ResultEntry[]`, and reports `total`, `warnings`, `partial`, `nextCursor` and
+`empty` alongside it:
+
+```ts
+import { toResultEntries } from 'vue-legal-query-builder'
+
+const shaped = toResultEntries(props.result)
+shaped.entries[0].court   // lifted out of the hit's metadata
+shaped.nextCursor         // present only when the provider paged
+```
+
+The built-in `ranked-list` shows the title (linked to the official source when
+the provider gave a `url`), the snippet, score, and whatever of source, court,
+jurisdiction, date, language, ECLI, case and country the hit carries. It reports
+an empty set and any partial-result warning rather than looking broken, and
+offers **Load more** only when the provider returned a cursor.
+
+## Documents, citations and issue reports
+
+Three further operations ship with the runtime. Each is offered **only when the
+provider advertises it and the adapter implements it** — `canUse(operation)`,
+never the other way round. Nothing appears for a host that has not wired it up.
+
+```ts
+runtime.canUse('getDocument')       // provider says yes AND adapter has it
+runtime.loadDocument(source, id)    // cached in memory for the session
+runtime.resolveReference({ reference: 'art. 6 code civil', hintCountry: 'FR' })
+runtime.reportSourceIssue({ source, issueType: 'invalid_url', description })
+```
+
+- **Documents.** Every result in the built-in list offers *View document* when
+  it carries a source and an id. The document opens in a panel showing its text
+  and metadata, and says so plainly when the provider has no full text or
+  returned a truncated one. Published decisions do not change, so each document
+  is fetched once and kept for the session.
+- **Citations.** The *Resolve a citation* panel takes a loose reference with
+  optional country and type hints, and reports the match type — calling out
+  `ambiguous` when more than one document matched. Resolved hits render through
+  the same ranked view as search results, because a resolved reference is just a
+  hit with a match type.
+- **Issue reports.** Offered from an open document, and only when supported.
+  A report is a *write* with no undo, so it takes two steps — review, then
+  confirm — and names the source it will be sent against.
+
+Switching provider or database closes the document and clears the resolution.
+
 ## Requirements
 
 - Vue 3.4 or higher
+- `legal-retrieval-types`, a dependency of this package that holds the
+  provider contracts the runtime imports.
+
+## Provider-agnostic runtime
+
+Passing a `manifest` (or a `loadManifest`) switches the form onto a
+provider-agnostic path. The manifest describes providers and the databases they
+expose, and each database generates its fields from a declarative schema, so a
+host adds a corpus without forking the package. See
+[`docs/runtime-configurable-legal-search-builder.md`](docs/runtime-configurable-legal-search-builder.md).
+
+The form still never reaches a provider. It calls the `adapter` you mount —
+normally a thin client for **your** server, which is where a provider credential
+(e.g. the user's Legal Data Hunter API key) lives and where the provider is
+called.
+
+```vue
+<template>
+  <LegalDocsForm
+    :manifest="manifest"
+    :adapter="adapter"
+    initial-provider="ldh"
+    @provider-change="onProvider"
+    @database-change="onDatabase"
+    @operation-error="onOperationError"
+  />
+</template>
+
+<script setup>
+import { LegalDocsForm, useLegalSearchRuntime } from 'vue-legal-query-builder'
+
+const manifest = { schemaVersion: '3', providers: [/* … */], databases: [/* … */] }
+
+// A thin client for your own server. No credential ever reaches this file.
+const adapter = {
+  search: (request) =>
+    fetch('/api/legal/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }).then((r) => r.json()),
+  discoverCountries: (request) => fetch(`/api/legal/countries?...`).then((r) => r.json()),
+  discoverSources: (request) => fetch(`/api/legal/sources?...`).then((r) => r.json()),
+  getFilters: (request) => fetch(`/api/legal/sources/${request.source}/filters`).then((r) => r.json()),
+}
+</script>
+```
+
+### What your server must do
+
+| Responsibility | Why |
+|---|---|
+| Authenticate with the provider | The credential stays server-side |
+| Hold the API key (`LDH_KEY`) | The browser never sees it |
+| Call the provider's REST API | HTTP calls happen off the page |
+| Validate the request body | The page is untrusted input |
+| Allowlist providers and operations | A compromised page cannot widen scope |
+| Normalize provider responses to `NormalizedSearchResult` etc. | One shape for the UI |
+| Map failures to `ProviderOperationError` codes | Stable errors, no transport details leaked |
+
+### Driving the form in code
+
+`useLegalSearchRuntime` is the composable the form uses internally; it is also
+exported so a host (or a component inside the form's tree) can drive the runtime
+directly — switching provider/database, reading the visible fields, validating,
+or building the request:
+
+```ts
+import { useLegalSearchRuntime } from 'vue-legal-query-builder'
+
+const runtime = useLegalSearchRuntime({ manifest, adapter })
+await runtime.load()               // resolve the manifest
+runtime.setDatabase('legislation') // switch corpus; state is kept per database
+runtime.setValue('query', 'GDPR')
+runtime.validate()                 // { valid, missing, errors }
+runtime.buildRequest()             // { provider, database, params }
+await runtime.search()             // calls adapter.search
+```
+
+Field layout, dependency gating, validation and param collection are pure
+functions in the same module and are exported too (`resolveVisibleFields`,
+`validateFields`, `collectParams`, `defaultFieldValues`, `moveField`, …).
+
+### Discovery narrows the form
+
+When a provider advertises `capabilities.supportsDiscovery`, the form adds
+**country** and **source** pickers. Choosing a country clears the source and
+reloads the source list; choosing a source loads its filters, which fill the
+matching fields' options, so a `court` field offers only the courts that source
+actually has.
+
+The provider reports filters under plural names and the field names the singular
+key, matched by a small published convention:
+
+| Discovery answer | Field key |
+|---|---|
+| `countries` | `country` |
+| `sources` | `source` |
+| `courts` | `court` |
+| `jurisdictions` | `jurisdiction` |
+| `chambers` | `chamber` |
+| `decisionTypes` | `decisionType` |
+| `languages` | `language` |
+| `courtTiers` | `courtTier` |
+| `subdivisions` | `subdivision` |
+
+The map is exported as `DISCOVERY_FIELD_KEYS`, and `mergeFieldOptions(fields,
+{ filters, countries, sources })` applies it if you want to drive it yourself.
+Choosing a country or a source also **pre-fills** the matching field, so what
+will be sent is visible in the form rather than hidden in the picker. In-flight
+discovery calls are guarded, so a slow reply cannot overwrite a newer selection.
 
 ## License
 

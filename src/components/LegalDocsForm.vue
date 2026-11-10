@@ -2,8 +2,28 @@
     <div class="legal-docs-form">
         <h2 v-if="props.title" class="title">{{ props.title }}</h2>
         <p v-if="props.subtitle" class="subtitle">{{ props.subtitle }}</p>
+
+        <!-- The provider-agnostic runtime: a manifest resolved into providers,
+             databases and generated fields. Submitting routes through the host
+             adapter. Without a manifest this block renders nothing and the
+             legacy body below runs unchanged. -->
+        <RuntimeSelector v-if="runtime.ready.value" :runtime="runtime" />
+
+        <RuntimeFieldsForm v-if="runtime.ready.value && runtime.hasDeclaredFields.value" :runtime="runtime"
+            :loading="loading" :components="props.fieldComponents" @submit="handleSubmit"
+            @handleReset="handleReset" />
+
+        <DatasetFieldsForm
+            v-else-if="activeDataset && hasDeclaredFields(activeDataset)"
+            :dataset="activeDataset"
+            :formData="formData"
+            :values="customParams"
+            :loading="loading"
+            @submit="handleSubmit"
+            @handleReset="handleReset"
+        />
         <FreeForm 
-            v-if="props.type === FormType.FREE"
+            v-else-if="props.type === FormType.FREE"
             :formData="formData"
             :loading="loading"
             @submit="handleSubmit"
@@ -38,11 +58,45 @@
             <div class="spinner"></div>
             <p class="loader-text">Searching documents...</p>
         </div>
+
+        <!-- Results. A host-registered view wins, then the #results slot, then
+             the built-in view the database names. Nothing is inferred from the
+             shape of the payload — see components/resultEntries.ts. -->
+        <section v-if="lastResult" class="results-section">
+            <component :is="hostResultView" v-if="hostResultView" :result="lastResult"
+                :result-view="activeResultView" :loading="loading" @load-more="handleLoadMore" />
+
+            <slot v-else name="results" :result="lastResult" :dataset="activeDataset"
+                :result-view="activeResultView" :open-document="handleOpenDocument">
+                <ResultToolbar v-if="showResultToolbar" :views="BUILT_IN_VIEWS" :view="effectiveViewKind"
+                    :available="availableColumns" :visible="visibleColumnKeys"
+                    @update:view="setResultView" @update:visible="setColumns" @reset="resetColumns" />
+                <RankedList v-if="effectiveViewKind === 'ranked-list'" :result="lastResult"
+                    :loading="loading" :can-open-document="canOpenDocument" :columns="listColumns"
+                    @load-more="handleLoadMore" @open-document="handleOpenDocument" />
+                <ResultTable v-else-if="effectiveViewKind === 'table'" :result="lastResult"
+                    :columns="visibleColumns" :loading="loading" :can-open-document="canOpenDocument"
+                    @load-more="handleLoadMore" @open-document="handleOpenDocument" />
+                <pre v-else-if="showRawResult" class="results-raw">{{ formattedRawResult }}</pre>
+                <p v-else class="results-unsupported">
+                    No view is registered for result kind "{{ activeResultView?.kind }}".
+                </p>
+            </slot>
+        </section>
+
+        <RuntimeDocumentPanel v-if="runtime.activeDocument.value" :document="runtime.activeDocument.value"
+            @close="runtime.closeDocument()" />
+
+        <p v-if="runtime.documentError.value" class="results-unsupported" role="alert">
+            {{ runtime.documentError.value.message }}
+        </p>
+
+        <RuntimeResolvePanel v-if="canResolve" @open-document="handleOpenDocument" />
     </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, provide } from 'vue'
+import { ref, reactive, computed, provide, watch } from 'vue'
 import { DocType } from 'legal-docs-types'
 import type {
     RechtspraakQueryParameters,
@@ -52,13 +106,31 @@ import type {
     EchrDocumentType,
     AttributesToFetch,
 } from 'legal-docs-types'
-import type { LegalDocsFormProps, Dataset, LegalDocsQuery, GoalFixedParameters, DatasetDescriptor } from './types'
+import type { LegalDocsFormProps, Dataset, LegalDocsQuery, GoalFixedParameters, DatasetDescriptor, ResolvedLegalSearchConfig } from './types'
 import { FormType } from './types'
 import { defaultDataset, isBuiltInDataset, resolveDatasets } from './datasets'
+import { collectDatasetParams, hasDeclaredFields } from './datasetFields'
 import { provideHostCallbacks } from './hostCallbacks'
+import { provideLegalSearchRuntime, useLegalSearchRuntime } from './runtime/useLegalSearchRuntime'
 import { resolveGuidedStructure } from '../templates'
 import FreeForm from './forms/FreeForm.vue'
 import GuidedForm from './forms/GuidedForm.vue'
+import DatasetFieldsForm from './DatasetFieldsForm.vue'
+import RankedList from './RankedList.vue'
+import ResultTable from './ResultTable.vue'
+import ResultToolbar from './ResultToolbar.vue'
+import {
+    availableResultFields,
+    resolveResultColumns,
+    resultColumnsStorageKey,
+    resultFieldsFromView,
+    type ResultFieldDescriptor,
+} from './resultFields'
+import RuntimeSelector from './runtime/RuntimeSelector.vue'
+import RuntimeFieldsForm from './runtime/RuntimeFieldsForm.vue'
+import RuntimeDocumentPanel from './runtime/RuntimeDocumentPanel.vue'
+import RuntimeResolvePanel from './runtime/RuntimeResolvePanel.vue'
+import { toResultEntries, type ResultEntry } from './resultEntries'
 
 const props = withDefaults(defineProps<LegalDocsFormProps>(), {
     type: FormType.FREE
@@ -82,7 +154,43 @@ const emit = defineEmits<{
     submit: [data: LegalDocsQuery]
     success: [result: any]
     error: [error: Error]
+    'provider-change': [providerId: string | undefined]
+    'database-change': [databaseId: string | undefined]
+    'configuration-change': [config: ResolvedLegalSearchConfig]
+    'operation-start': [operation: string, detail?: unknown]
+    'operation-success': [operation: string, result: unknown]
+    'operation-error': [operation: string, error: Error]
 }>()
+
+// The provider-agnostic runtime. A manifest (or a loader) switches the form onto
+// the runtime path — providers, databases and generated fields come from it —
+// while a host adapter routes the search. Without either, the form behaves
+// exactly as before: it builds a query and hands it back.
+const runtime = useLegalSearchRuntime({
+    manifest: computed(() => props.manifest),
+    loadManifest: props.loadManifest,
+    adapter: props.adapter,
+    initialProvider: props.initialProvider,
+    initialDatabase: props.initialDatabase,
+})
+provideLegalSearchRuntime(runtime)
+
+void runtime.load()
+
+watch(() => runtime.providerId.value, (value) => emit('provider-change', value))
+watch(() => runtime.databaseId.value, (value) => emit('database-change', value))
+watch(
+    () => runtime.config.value,
+    (value) => {
+        if (value) emit('configuration-change', value)
+    },
+)
+watch(
+    () => runtime.configError.value,
+    (value) => {
+        if (value) emit('error', value instanceof Error ? value : new Error(String(value)))
+    },
+)
 
 // Form data
 const formData = reactive({
@@ -147,10 +255,165 @@ const formData = reactive({
     dateDecisionEnd: ''
 })
 
+// Values collected by a host dataset's declarative field schema. Only used when
+// the selected dataset declares `fields`; built-in datasets keep their own path.
+const customParams = reactive<Record<string, unknown>>({})
+
+const activeDataset = computed<DatasetDescriptor | undefined>(() =>
+    datasets.value.find((d) => d.id === formData.selectedDataset)
+)
+
 const loading = ref(false)
 const error = ref<string | null>(null)
 const successMessage = ref<string | null>(null)
 const hasValidationWarning = ref(false)
+const lastResult = ref<unknown>(null)
+
+// Which view renders the result: the runtime database's, or the dataset's.
+const activeResultView = computed(() =>
+    runtime.ready.value ? runtime.activeDatabase.value?.defaultResultView : activeDataset.value?.resultView,
+)
+
+// A host-registered view beats the slot and the built-in one.
+const hostResultView = computed(() => {
+    const registry = props.resultViews
+    const kind = activeResultView.value?.kind
+    if (!registry || !kind) return undefined
+    return registry[kind]
+})
+
+// --- Result layout: list or table, and which fields show -------------------
+//
+// The provider's catalogue (resultView.config.fields) says what a hit *can*
+// carry; the columns offered are the ones these results actually carry. The
+// user's choice is remembered per provider, corpus and source selection.
+
+const BUILT_IN_VIEWS = [
+    { kind: 'ranked-list', label: 'List' },
+    { kind: 'table', label: 'Table' },
+]
+const VIEW_STORAGE_KEY = 'lqb-result-view'
+
+function readStored<T>(key: string): T | null {
+    try {
+        const text = globalThis.localStorage?.getItem(key)
+        return text ? (JSON.parse(text) as T) : null
+    } catch {
+        return null
+    }
+}
+
+function writeStored(key: string, value: unknown) {
+    try {
+        if (value === null) globalThis.localStorage?.removeItem(key)
+        else globalThis.localStorage?.setItem(key, JSON.stringify(value))
+    } catch {
+        // Private mode or storage full: the choice lasts for this page only.
+    }
+}
+
+const chosenViewKind = ref<string | null>(readStored<string>(VIEW_STORAGE_KEY))
+const isBuiltInView = (kind: string | undefined) => BUILT_IN_VIEWS.some((view) => view.kind === kind)
+
+// The user's pick applies only where the database's own view is a built-in one.
+const effectiveViewKind = computed(() => {
+    const declared = activeResultView.value?.kind
+    if (isBuiltInView(declared) && isBuiltInView(chosenViewKind.value ?? undefined)) return chosenViewKind.value!
+    return declared
+})
+
+function setResultView(kind: string) {
+    chosenViewKind.value = kind
+    writeStored(VIEW_STORAGE_KEY, kind)
+}
+
+const resultEntries = computed(() => toResultEntries(lastResult.value).entries)
+const resultCatalog = computed(() => resultFieldsFromView(activeResultView.value))
+const availableColumns = computed(() => availableResultFields(resultEntries.value, resultCatalog.value))
+
+const columnsStorageKey = computed(() =>
+    resultColumnsStorageKey(
+        runtime.ready.value ? runtime.providerId.value : 'dataset',
+        runtime.ready.value ? runtime.databaseId.value : activeDataset.value?.id,
+        runtime.ready.value ? runtime.activeValues.value?.source : undefined,
+    ),
+)
+const savedColumns = ref<string[] | null>(null)
+watch(columnsStorageKey, (key) => (savedColumns.value = readStored<string[]>(key)), { immediate: true })
+
+const visibleColumnKeys = computed(() => resolveResultColumns(availableColumns.value, savedColumns.value))
+const visibleColumns = computed(() =>
+    visibleColumnKeys.value
+        .map((key) => availableColumns.value.find((field) => field.key === key))
+        .filter((field): field is ResultFieldDescriptor => field !== undefined),
+)
+// The list keeps its fixed facts unless the provider describes its fields.
+const listColumns = computed(() => (resultCatalog.value ? visibleColumns.value : undefined))
+
+function setColumns(keys: string[]) {
+    savedColumns.value = keys
+    writeStored(columnsStorageKey.value, keys)
+}
+
+function resetColumns() {
+    savedColumns.value = null
+    writeStored(columnsStorageKey.value, null)
+}
+
+const showResultToolbar = computed(
+    () => isBuiltInView(activeResultView.value?.kind) && resultEntries.value.length > 0,
+)
+
+// A raw dump is a development aid, not a product feature. In a production build
+// an unmapped result kind says so rather than silently rendering nothing.
+const showRawResult = computed(() => {
+    const env = (import.meta as unknown as { env?: { DEV?: boolean } }).env
+    return env?.DEV === true
+})
+
+const formattedRawResult = computed(() => {
+    try {
+        return JSON.stringify(lastResult.value, null, 2)
+    } catch {
+        return String(lastResult.value)
+    }
+})
+
+const handleLoadMore = async () => {
+    emit('operation-start', 'searchMore')
+    try {
+        const result = await runtime.searchMore()
+        if (result) {
+            lastResult.value = result
+            emit('operation-success', 'searchMore', result)
+        }
+    } catch (err: any) {
+        error.value = err.message || 'An error occurred'
+        emit('operation-error', 'searchMore', err)
+        emit('error', err)
+    }
+}
+
+// A result entry is only actionable when the provider and adapter both offer
+// document retrieval — never the other way round.
+const canOpenDocument = computed(
+    () => runtime.ready.value && runtime.canUse('getDocument'),
+)
+const canResolve = computed(
+    () => runtime.ready.value && runtime.canUse('resolveReference'),
+)
+
+const handleOpenDocument = async (entry: ResultEntry) => {
+    if (!canOpenDocument.value || !entry.source || !entry.sourceId) return
+    emit('operation-start', 'getDocument', entry)
+    try {
+        const document = await runtime.loadDocument(entry.source, entry.sourceId)
+        if (document) emit('operation-success', 'getDocument', document)
+    } catch (err: any) {
+        emit('operation-error', 'getDocument', err)
+        emit('error', err)
+    }
+}
 
 const parseList = (input: string): string[] | undefined => {
     const items = input.split(',').map(i => i.trim()).filter(i => i.length > 0)
@@ -274,6 +537,16 @@ function parseEchrParams(): EchrQueryParameters {
 }
 
 function parseParameters(): LegalDocsQuery {
+    // A dataset with a declarative field schema collects only its declared
+    // fields — no Rechtspraak bleed-through. See docs/dataset-agnostic-seam.md.
+    const dataset = activeDataset.value
+    if (dataset && hasDeclaredFields(dataset)) {
+        return {
+            dataset: formData.selectedDataset,
+            params: { ...collectDatasetParams(dataset, customParams), ...formData.guidedFixedParameters },
+        }
+    }
+
     // facts/reasoning aren't declared on either query type in legal-docs-types, but are merged
     // in anyway as a best-effort passthrough in case the API still accepts them.
     const passthrough: Record<string, string> = {}
@@ -314,6 +587,15 @@ const handleSubmit = async (isValid: boolean) => {
         return
     }
 
+    // A manifest with a declared field schema and a host adapter means the
+    // runtime path: collect the database's params and route them through the
+    // adapter, emitting operation events. Otherwise fall through to the
+    // legacy path, which only ever emits.
+    if (runtime.ready.value && runtime.hasDeclaredFields.value && props.adapter?.search) {
+        await handleRuntimeSubmit()
+        return
+    }
+
     loading.value = true
 
     try {
@@ -334,6 +616,7 @@ const handleSubmit = async (isValid: boolean) => {
             }
 
             successMessage.value = `${docCount} document${docCount !== 1 ? 's' : ''} fetched`
+            lastResult.value = data
             emit('success', data)
         }
     } catch (err: any) {
@@ -344,8 +627,42 @@ const handleSubmit = async (isValid: boolean) => {
     }
 }
 
+const handleRuntimeSubmit = async () => {
+    const validation = runtime.validate()
+    if (!validation.valid) {
+        hasValidationWarning.value = true
+        return
+    }
+
+    const request = runtime.buildRequest()
+    if (!request) return
+
+    loading.value = true
+    emit('operation-start', 'search', request)
+
+    try {
+        const result = await runtime.search()
+        if (!result) return
+
+        const count = result.hits.length
+        const total = result.totalHits ?? count
+        successMessage.value = `${total} document${total !== 1 ? 's' : ''} fetched`
+        lastResult.value = result
+        emit('operation-success', 'search', result)
+        emit('success', result)
+    } catch (err: any) {
+        error.value = err.message || 'An error occurred'
+        emit('operation-error', 'search', err)
+        emit('error', err)
+    } finally {
+        loading.value = false
+    }
+}
+
 const handleReset = () => {
-    formData.selectedDataset = 'RS'
+    runtime.resetDatabaseState()
+    formData.selectedDataset = defaultDataset(datasets.value) as Dataset
+    for (const key of Object.keys(customParams)) delete customParams[key]
     formData.keywords = []
     formData.eclis = ''
     formData.articles = ''
@@ -405,6 +722,7 @@ const handleReset = () => {
 const clearMessages = () => {
     error.value = null
     successMessage.value = null
+    lastResult.value = null
 }
 </script>
 
@@ -692,6 +1010,27 @@ const clearMessages = () => {
   color: #6b7280;
   margin-bottom: 32px;
   font-size: 16px;
+}
+
+.results-section {
+  margin-top: 24px;
+}
+
+.results-raw {
+  margin: 0;
+  padding: 12px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 12px;
+  overflow: auto;
+  max-height: 420px;
+}
+
+.results-unsupported {
+  margin: 0;
+  font-size: 13px;
+  color: #6b7280;
 }
 
 /* Loader */

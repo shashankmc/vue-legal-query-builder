@@ -1,4 +1,36 @@
+import type { Component } from 'vue'
 import type { RechtspraakQueryParameters, EchrQueryParameters, BWBItem } from 'legal-docs-types'
+import type {
+  DatasetDescriptor,
+  LegalSearchAdapter,
+  QueryBuilderManifest,
+} from 'legal-retrieval-types'
+
+export type {
+  DatasetDescriptor,
+  FieldDescriptor,
+  FieldControl,
+  FieldDependency,
+  ResultViewRef,
+  LegalDatabaseDescriptor,
+  LegalSearchProviderDescriptor,
+  LegalSearchAdapter,
+  QueryBuilderManifest,
+  QueryBuilderManifestV1,
+  QueryBuilderManifestV2,
+  QueryBuilderManifestV3,
+  ResolvedLegalSearchConfig,
+  ProviderOperation,
+  ProviderOperationErrorCode,
+  NormalizedSearchResult,
+  NormalizedSearchHit,
+  NormalizedLegalDocument,
+  ResolvedLegalReference,
+  ReferenceMatchType,
+  SourceIssueType,
+  DiscoveryOption,
+  ProviderFilterSet,
+} from 'legal-retrieval-types'
 
 export enum FormType {
   FREE = 'free',
@@ -23,29 +55,18 @@ export enum BlockType {
   TEXTAREA_INPUT = 'TextAreaInput',
 }
 
-/** Dataset a query targets. CJEU has no backing endpoint in the API yet and stays disabled in the UI. */
-export type Dataset = 'RS' | 'ECHR' | 'CJEU'
-
 /**
- * A dataset a host offers in the picker. The built-ins are `RS`, `ECHR` and
- * `CJEU`; a host can pass its own list (optionally including the built-ins) to
- * plug in a corpus this package knows nothing about. See
- * docs/dataset-agnostic-seam.md.
+ * Dataset a query targets. The built-ins are RS, ECHR and CJEU (CJEU has no
+ * backing endpoint yet and stays disabled), but the type stays open so a host
+ * can register a dataset of its own. See docs/dataset-agnostic-seam.md.
  */
-export interface DatasetDescriptor {
-    /** Id returned in @submit, e.g. "RS", "ECHR", "bluelab". */
-    id: string
-    /** Label shown in a DatasetSelector block. */
-    label: string
-    /** Shown but not selectable. */
-    disabled?: boolean
-}
+export type Dataset = 'RS' | 'ECHR' | 'CJEU' | (string & {})
 
 /** The datasets offered when a host passes no `datasets` prop. */
 export const BUILT_IN_DATASETS: DatasetDescriptor[] = [
-    { id: 'RS', label: 'Rechtspraak' },
-    { id: 'ECHR', label: 'ECHR' },
-    { id: 'CJEU', label: 'CJEU', disabled: true },
+    { id: 'RS', label: 'Rechtspraak', kind: 'case-law' },
+    { id: 'ECHR', label: 'ECHR', kind: 'case-law' },
+    { id: 'CJEU', label: 'CJEU', kind: 'case-law', disabled: true },
 ]
 
 export interface Block {
@@ -135,4 +156,38 @@ export interface LegalDocsFormProps {
    * unavailable, rather than silently returning nothing.
    */
   onSearchLaws?: (query: string) => Promise<BWBItem[]>
+  /**
+   * A provider/database manifest to resolve into a runtime-configurable form.
+   * Passing one switches the form onto the provider-agnostic path: providers
+   * and databases come from the manifest, and each database's fields are
+   * generated from its declarative schema. See docs/dataset-agnostic-seam.md
+   * and docs/runtime-configurable-legal-search-builder.md.
+   */
+  manifest?: QueryBuilderManifest
+  /**
+   * Fetch the manifest when none is passed, so the form can start before its
+   * provider list is known. Rejected promises surface through `config-error`.
+   */
+  loadManifest?: () => Promise<QueryBuilderManifest | unknown>
+  /**
+   * The host's provider adapter. When present, submitting the form routes the
+   * collected params through it; when absent the form only ever emits. The
+   * adapter is normally backed by a server-side bridge that holds the
+   * credential — the form never reaches a provider itself.
+   */
+  adapter?: LegalSearchAdapter
+  /** Provider selected on mount. Falls back to the manifest's default. */
+  initialProvider?: string
+  /** Database selected on mount. Falls back to the provider's default. */
+  initialDatabase?: string
+  /**
+   * Custom field components, keyed by `FieldDescriptor.block`, looked up before
+   * the built-in blocks. Reserved for the runtime renderer (see the plan).
+   */
+  fieldComponents?: Record<string, Component>
+  /**
+   * Custom result views, keyed by `ResultViewRef.kind`, looked up before the
+   * built-in views. Reserved for the runtime renderer (see the plan).
+   */
+  resultViews?: Record<string, Component>
 }

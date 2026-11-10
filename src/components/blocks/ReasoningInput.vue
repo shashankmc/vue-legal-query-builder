@@ -2,7 +2,7 @@
     <TextAreaInput
         fieldId="reasoning-input"
         :value="reasoning"
-        @update:value="emit('update:reasoning', $event)"
+        @update:value="emit('update:reasoning', $event ?? '')"
         :placeholder="placeholder || ''"
         label="Reasoning"
     />

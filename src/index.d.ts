@@ -1,5 +1,4 @@
-import type { DefineComponent, Plugin } from "vue";
-import type {
+import type { Component, DefineComponent, Plugin, Ref } from "vue";import type {
   RechtspraakQueryParameters,
   RechtspraakDocument,
   RechtspraakFullTextDocument,
@@ -8,6 +7,70 @@ import type {
   EchrFullTextDocument,
   BWBItem,
 } from "legal-docs-types";
+import type {
+  DatasetDescriptor,
+  FieldDescriptor,
+  ResultViewRef,
+  FieldControl,
+  FieldDependency,
+  LegalDatabaseDescriptor,
+  LegalSearchProviderDescriptor,
+  LegalSearchAdapter,
+  QueryBuilderManifest,
+  QueryBuilderManifestV1,
+  QueryBuilderManifestV2,
+  QueryBuilderManifestV3,
+  ResolvedLegalSearchConfig,
+  ProviderOperation,
+  ProviderOperationErrorCode,
+  ProviderSearchRequest,
+  DiscoveryOption,
+  ProviderFilterSet,
+  NormalizedSearchResult,
+  NormalizedSearchHit,
+  NormalizedLegalDocument,
+  ResolvedLegalReference,
+  ReferenceMatchType,
+  SourceIssueType,
+} from "legal-retrieval-types";
+export type {
+  DatasetDescriptor,
+  FieldDescriptor,
+  ResultViewRef,
+  FieldControl,
+  FieldDependency,
+  LegalDatabaseDescriptor,
+  LegalSearchProviderDescriptor,
+  LegalSearchAdapter,
+  QueryBuilderManifest,
+  QueryBuilderManifestV1,
+  QueryBuilderManifestV2,
+  QueryBuilderManifestV3,
+  ResolvedLegalSearchConfig,
+  ProviderOperation,
+  ProviderOperationErrorCode,
+  DiscoveryOption,
+  ProviderFilterSet,
+  NormalizedSearchResult,
+  NormalizedSearchHit,
+  NormalizedLegalDocument,
+  ResolvedLegalReference,
+  ReferenceMatchType,
+  SourceIssueType,
+};
+
+export { ProviderOperationError } from "legal-retrieval-types";
+
+/**
+ * Backend-dependency helpers: what a provider needs configured, and the
+ * scaffold an operator gets. These describe the requirement — they never carry
+ * a credential value.
+ */
+export declare function requiredDependencies(method: import("legal-retrieval-types").MethodDescriptor): import("legal-retrieval-types").DependencyDescriptor[];
+export declare function unmetDependencies(method: import("legal-retrieval-types").MethodDescriptor): import("legal-retrieval-types").DependencyDescriptor[];
+export declare function dependencyHint(method: import("legal-retrieval-types").MethodDescriptor): string;
+export declare function methodsWithDependencies(methods: import("legal-retrieval-types").MethodDescriptor[]): import("legal-retrieval-types").MethodDescriptor[];
+export declare function buildDependencyScaffold(methods: import("legal-retrieval-types").MethodDescriptor[]): string;
 
 /** Searches legislation by name. Supplied by the host. */
 export declare type SearchLaws = (query: string) => Promise<BWBItem[]>;
@@ -35,7 +98,12 @@ export declare enum BlockType {
   TEXTAREA_INPUT = "TextAreaInput",
 }
 
-export type Dataset = "RS" | "ECHR" | "CJEU";
+/**
+ * Dataset a query targets. The built-ins are RS, ECHR and CJEU (CJEU has no
+ * backing endpoint yet and stays disabled), but the type stays open so a host
+ * can register a dataset of its own.
+ */
+export type Dataset = "RS" | "ECHR" | "CJEU" | (string & {});
 
 export interface Block {
   type: BlockType;
@@ -103,18 +171,261 @@ export type LegalDocsQuery =
 /**
  * A dataset a host offers in the picker. The built-ins are RS, ECHR and CJEU;
  * a host can pass its own list to plug in a corpus this package does not know.
+ * A dataset may declare `fields` to collect its parameters generically.
  */
-export interface DatasetDescriptor {
-  /** Id returned in @submit, e.g. "RS", "ECHR", "bluelab". */
-  id: string;
-  /** Label shown in a DatasetSelector block. */
-  label: string;
-  /** Shown but not selectable. */
-  disabled?: boolean;
-}
 
 /** The datasets offered when a host passes no `datasets` prop. */
 export declare const BUILT_IN_DATASETS: DatasetDescriptor[];
+
+/** A generic, app-agnostic provisions dataset (BlueLab is one host that uses it). */
+export declare const provisionsDataset: DatasetDescriptor;
+
+/** The params a dataset's declared fields collected. */
+export declare function collectDatasetParams(
+  dataset: DatasetDescriptor,
+  values: Record<string, unknown>,
+): Record<string, unknown>;
+
+/** Whether every `required` field has a value. */
+export declare function validateDatasetFields(
+  dataset: DatasetDescriptor,
+  values: Record<string, unknown>,
+): boolean;
+
+/** Whether a collected value counts as filled. */
+export declare function isFieldFilled(value: unknown): boolean;
+
+/** Whether a dataset declares a field schema. */
+export declare function hasDeclaredFields(dataset: DatasetDescriptor | undefined): boolean;
+
+// ---------------------------------------------------------------------------
+// Provider-agnostic runtime
+// ---------------------------------------------------------------------------
+
+/** Which optional fields a user hid, and the order they put the rest in. */
+export interface FieldLayout {
+  hidden: string[];
+  order: string[];
+}
+
+export declare const EMPTY_FIELD_LAYOUT: FieldLayout;
+
+export interface FieldValidation {
+  valid: boolean;
+  missing: string[];
+  errors: Record<string, string>;
+}
+
+export declare function resetFieldLayout(): FieldLayout;
+export declare function isUserConfigurable(field: FieldDescriptor): boolean;
+export declare function defaultFieldValues(fields: FieldDescriptor[]): Record<string, unknown>;
+export declare function orderFields(fields: FieldDescriptor[], layout: FieldLayout): FieldDescriptor[];
+export declare function applyLayout(fields: FieldDescriptor[], layout: FieldLayout): FieldDescriptor[];
+export declare function dependencySatisfied(
+  field: FieldDescriptor,
+  values: Record<string, unknown>,
+): boolean;
+export declare function resolveVisibleFields(
+  fields: FieldDescriptor[],
+  layout: FieldLayout,
+  values: Record<string, unknown>,
+): FieldDescriptor[];
+export declare function setFieldVisible(
+  fields: FieldDescriptor[],
+  layout: FieldLayout,
+  key: string,
+  visible: boolean,
+): FieldLayout;
+export declare function moveField(
+  fields: FieldDescriptor[],
+  layout: FieldLayout,
+  key: string,
+  delta: number,
+): FieldLayout;
+export declare function validateFields(
+  fields: FieldDescriptor[],
+  values: Record<string, unknown>,
+): FieldValidation;
+/** Splits a field list by the advanced toggle. */
+export declare function filterAdvanced(
+  fields: FieldDescriptor[],
+  showAdvanced: boolean,
+): FieldDescriptor[];
+export declare function collectParams(
+  fields: FieldDescriptor[],
+  values: Record<string, unknown>,
+): Record<string, unknown>;
+/** Which field key a discovery answer's options belong to (plural → singular). */
+export declare const DISCOVERY_FIELD_KEYS: Record<string, string>;
+/** The discovery answers that can seed a field's option list. */
+export interface DiscoveryInputs {
+  filters?: ProviderFilterSet;
+  countries?: DiscoveryOption[];
+  sources?: DiscoveryOption[];
+}
+/** Fills each field's `options` from what the provider has discovered. */
+export declare function mergeFieldOptions(
+  fields: FieldDescriptor[],
+  discovery: DiscoveryInputs | undefined,
+): FieldDescriptor[];
+export declare function databasesForProvider(
+  databases: LegalDatabaseDescriptor[],
+  providerId: string | undefined,
+): LegalDatabaseDescriptor[];
+export declare function providerForDatabase(
+  providers: LegalSearchProviderDescriptor[],
+  databases: LegalDatabaseDescriptor[],
+  databaseId: string | undefined,
+): LegalSearchProviderDescriptor | undefined;
+export declare function defaultDatabaseForProvider(
+  providers: LegalSearchProviderDescriptor[],
+  databases: LegalDatabaseDescriptor[],
+  providerId: string | undefined,
+): string | undefined;
+export declare function defaultProviderFor(
+  providers: LegalSearchProviderDescriptor[],
+): string | undefined;
+
+/** The field state of one database, kept apart from every other database's. */
+export interface DatabaseFormState {
+  values: Record<string, unknown>;
+  layout: FieldLayout;
+  loading: boolean;
+  validated: boolean;
+  result?: NormalizedSearchResult;
+  error?: any;
+}
+
+/** The discovery state of the active provider. */
+export interface RuntimeDiscoveryState {
+  loading: boolean;
+  countries: DiscoveryOption[];
+  sources: DiscoveryOption[];
+  filters?: ProviderFilterSet;
+  error?: any;
+}
+
+export interface UseLegalSearchRuntimeOptions {
+  /** A manifest to resolve. When it is a ref, a change re-resolves the runtime. */
+  manifest?:
+    | QueryBuilderManifest
+    | Ref<QueryBuilderManifest | undefined>
+    | { value: QueryBuilderManifest | undefined };
+  /** Fetch the manifest when none was passed. */
+  loadManifest?: () => Promise<QueryBuilderManifest | unknown>;
+  /** The host adapter. A missing adapter means the form only ever emits. */
+  adapter?: LegalSearchAdapter;
+  initialProvider?: string;
+  initialDatabase?: string;
+}
+
+/** The runtime state of a configurable search form. */
+export interface LegalSearchRuntime {
+  config: Ref<ResolvedLegalSearchConfig | null>;
+  configError: Ref<unknown>;
+  loadingManifest: Ref<boolean>;
+  ready: Ref<boolean>;
+  load(): Promise<void>;
+
+  providers: Ref<LegalSearchProviderDescriptor[]>;
+  databases: Ref<LegalDatabaseDescriptor[]>;
+  providerId: Ref<string | undefined>;
+  databaseId: Ref<string | undefined>;
+  activeProvider: Ref<LegalSearchProviderDescriptor | undefined>;
+  activeDatabase: Ref<LegalDatabaseDescriptor | undefined>;
+  databasesOfActiveProvider: Ref<LegalDatabaseDescriptor[]>;
+  setProvider(id: string): void;
+  setDatabase(id: string): void;
+
+  activeFields: Ref<FieldDescriptor[]>;
+  visibleFields: Ref<FieldDescriptor[]>;
+  hasDeclaredFields: Ref<boolean>;
+  /** Whether users may show/hide and reorder optional fields. */
+  allowFieldCustomization: Ref<boolean>;
+  /** Whether the fields marked `advanced` are on screen. */
+  showAdvancedFields: Ref<boolean>;
+  setShowAdvanced(value: boolean): void;
+  activeValues: Ref<Record<string, unknown>>;
+  activeLayout: Ref<FieldLayout>;
+  activeState: Ref<DatabaseFormState>;
+  setValue(key: string, value: unknown): void;
+  setValues(values: Record<string, unknown>): void;
+  toggleField(key: string, visible: boolean): void;
+  moveField(key: string, delta: number): void;
+  resetLayout(): void;
+  /** Clears the active database's answers, layout and last result. */
+  resetDatabaseState(): void;
+  stateFor(provider?: string, database?: string): DatabaseFormState;
+
+  validate(): FieldValidation;
+  buildRequest(cursor?: string): ProviderSearchRequest | undefined;
+  search(): Promise<NormalizedSearchResult | undefined>;
+  /** Fetches the next page and appends it, when the provider offered a cursor. */
+  searchMore(): Promise<NormalizedSearchResult | undefined>;
+
+  /** Whether the active provider says it can do this. Unknown means yes. */
+  supports(operation: ProviderOperation): boolean;
+  /** Whether the operation is both advertised and implemented by the adapter. */
+  canUse(operation: ProviderOperation): boolean;
+
+  /** The document currently open, if any. */
+  activeDocument: Ref<NormalizedLegalDocument | undefined>;
+  documentLoading: Ref<boolean>;
+  documentError: Ref<any>;
+  /** Documents fetched this session, keyed by source and id. */
+  documentCache: Record<string, NormalizedLegalDocument>;
+  /** Fetches one document, or returns the cached copy. */
+  loadDocument(source: string, sourceId: string): Promise<NormalizedLegalDocument | undefined>;
+  closeDocument(): void;
+
+  resolution: Ref<ResolvedLegalReference | undefined>;
+  resolveLoading: Ref<boolean>;
+  resolveError: Ref<any>;
+  resolveReference(input: {
+    reference: string;
+    hintCountry?: string;
+    hintType?: string;
+  }): Promise<ResolvedLegalReference | undefined>;
+
+  issue: { reporting: boolean; reported: boolean; error?: any };
+  reportSourceIssue(input: {
+    source: string;
+    issueType: SourceIssueType;
+    description?: string;
+  }): Promise<void>;
+
+  discovery: RuntimeDiscoveryState;
+  /** Country whose sources are offered, when the provider supports discovery. */
+  discoveryCountry: Ref<string | undefined>;
+  /** Source whose filters seed the form, when the provider supports discovery. */
+  discoverySource: Ref<string | undefined>;
+  discoverCountries(): Promise<void>;
+  discoverSources(country?: string): Promise<void>;
+  loadFilters(source: string): Promise<void>;
+  /** Reloads the provider's countries and drops the country/source selection. */
+  refreshDiscovery(): Promise<void>;
+  /** Picks the country; a new country clears the source and reloads the list. */
+  setDiscoveryCountry(code: string | undefined): void;
+  /** Picks the source and loads its filters. */
+  setDiscoverySource(id: string | undefined): void;
+}
+
+export declare function useLegalSearchRuntime(
+  options?: UseLegalSearchRuntimeOptions,
+): LegalSearchRuntime;
+
+/** Called by LegalDocsForm so its picker and field renderer can reach the runtime. */
+export declare function provideLegalSearchRuntime(runtime: LegalSearchRuntime): void;
+
+/** The runtime the form provided, or undefined when mounted outside one. */
+export declare function useLegalSearchRuntimeContext(): LegalSearchRuntime | undefined;
+
+/** Turns a provider failure into a stable error the form can render. */
+export declare function normalizeAdapterError(
+  error: unknown,
+  operation: ProviderOperation,
+  provider?: string,
+): import("legal-retrieval-types").ProviderOperationError;
 
 export interface LegalDocsFormProps {
   title?: string;
@@ -139,12 +450,252 @@ export interface LegalDocsFormProps {
    * the API itself — point this at your own server.
    */
   onSearchLaws?: SearchLaws;
+  /** A provider/database manifest to resolve into a runtime-configurable form. */
+  manifest?: QueryBuilderManifest;
+  /** Fetch the manifest when none is passed. */
+  loadManifest?: () => Promise<QueryBuilderManifest | unknown>;
+  /** The host's provider adapter. The form never reaches a provider itself. */
+  adapter?: LegalSearchAdapter;
+  /** Provider selected on mount. Falls back to the manifest's default. */
+  initialProvider?: string;
+  /** Database selected on mount. Falls back to the provider's default. */
+  initialDatabase?: string;
+  /** Custom field components, keyed by `FieldDescriptor.block`. */
+  fieldComponents?: Record<string, Component>;
+  /** Custom result views, keyed by `ResultViewRef.kind`. */
+  resultViews?: Record<string, Component>;
 }
 
 export declare const LegalDocsForm: DefineComponent<LegalDocsFormProps, {}, any>;
 
+/** A simple ranked list for provisions-style results. */
+export declare const RankedList: DefineComponent<{
+  result: unknown;
+  loading?: boolean;
+  /** Whether each result offers a "View document" action. */
+  canOpenDocument?: boolean;
+  /** The fields to show under each hit, in order. Omitted: a fixed set. */
+  columns?: ResultFieldDescriptor[];
+}, {}, any>;
+
+/** The same results as a table, one column per chosen field. Scrolls sideways when narrow. */
+export declare const ResultTable: DefineComponent<{
+  result: unknown;
+  columns: ResultFieldDescriptor[];
+  loading?: boolean;
+  canOpenDocument?: boolean;
+}, {}, any>;
+
+/** How a result field's value is rendered. */
+export type ResultFieldType = "text" | "longtext" | "date" | "url" | "number" | "code";
+/** One field a result can carry. A provider lists these in `resultView.config.fields`. */
+export interface ResultFieldDescriptor {
+  /** A `metadata` key, or a core slot such as `date`. */
+  key: string;
+  label: string;
+  type?: ResultFieldType;
+  /** Shown before the user picks their own columns. */
+  default?: boolean;
+}
+/** The catalogue a result view was configured with, when it has one. */
+export declare function resultFieldsFromView(view: ResultViewRef | undefined): ResultFieldDescriptor[] | undefined;
+/** A field's value on one entry: metadata first, then the entry's own slot. */
+export declare function resultFieldValue(entry: ResultEntry, key: string): unknown;
+export declare function humanizeFieldKey(key: string): string;
+/** Catalogue fields present in at least one entry, in order, then any other present field. */
+export declare function availableResultFields(
+  entries: ResultEntry[],
+  catalog?: ResultFieldDescriptor[],
+): ResultFieldDescriptor[];
+export declare function defaultResultColumns(available: ResultFieldDescriptor[]): string[];
+/** The saved choice where those fields are present, else the defaults. */
+export declare function resolveResultColumns(
+  available: ResultFieldDescriptor[],
+  saved: string[] | null | undefined,
+): string[];
+/** Where a column choice is remembered: per provider, corpus and source set. */
+export declare function resultColumnsStorageKey(
+  provider: string | undefined,
+  database: string | undefined,
+  sources: unknown,
+): string;
+export declare function formatResultValue(value: unknown, type: ResultFieldType | undefined): string;
+
+/** Host result views, keyed by `ResultViewRef.kind`. */
+export type ResultViewRegistry = Record<string, Component>;
+
+/** One result, flattened for display. */
+export interface ResultEntry {
+  id: string;
+  position: number;
+  title: string;
+  snippet?: string;
+  score?: number;
+  source?: string;
+  sourceId?: string;
+  url?: string;
+  date?: string;
+  country?: string;
+  language?: string;
+  court?: string;
+  ecli?: string;
+  caseNumber?: string;
+  jurisdiction?: string;
+  topProvision?: string;
+  /** Every provider-specific field, as the normalized hit carries it. */
+  metadata: Record<string, unknown>;
+  raw: unknown;
+}
+
+/** A result set, flattened, plus what a view needs to say about it. */
+export interface ResultEntries {
+  entries: ResultEntry[];
+  total?: number;
+  warnings: string[];
+  partial: boolean;
+  nextCursor?: string;
+  elapsedMs?: number;
+  empty: boolean;
+}
+
+/** Flattens a result into entries plus the notes a view should show. */
+export declare function toResultEntries(result: unknown): ResultEntries;
+export declare function isNormalizedSearchResult(
+  result: unknown,
+): result is NormalizedSearchResult;
+export declare function scorePercent(score: number): number;
+export declare function formatScore(score: number | undefined): string;
+
 
 export { DocType } from "legal-docs-types";
+
+// ---------------------------------------------------------------------------
+// Legal Data Hunter
+// ---------------------------------------------------------------------------
+
+export declare const LEGAL_DATA_HUNTER_PROVIDER_ID: "ldh";
+export declare const LEGAL_DATA_HUNTER_NAMESPACES: readonly ["case_law", "legislation", "doctrine"];
+export type LegalDataHunterNamespace = "case_law" | "legislation" | "doctrine";
+export type LegalDataHunterOperation =
+  | "search"
+  | "document"
+  | "resolve"
+  | "countries"
+  | "sources"
+  | "filters"
+  | "report-issue";
+
+/** The manifest a form renders for Legal Data Hunter. */
+export declare const legalDataHunterManifest: QueryBuilderManifestV3;
+/** The namespace a database maps to, when the manifest names one. */
+export declare function namespaceForDatabase(
+  manifest: QueryBuilderManifestV3,
+  databaseId: string,
+): string | undefined;
+
+/** The JSON body `POST /v1/search` accepts. */
+export interface LegalDataHunterSearchArgs {
+  q: string;
+  namespace?: string;
+  top_k?: number;
+  alpha?: number;
+  country?: string[];
+  source?: string[];
+  court?: string;
+  court_tier?: number;
+  jurisdiction?: string;
+  language?: string;
+  date_start?: string;
+  date_end?: string;
+  result_detail?: string;
+}
+export interface LegalDataHunterResolveArgs {
+  reference: string;
+  hint_country?: string;
+  hint_type?: string;
+}
+export interface LegalDataHunterIssueArgs {
+  source: string;
+  issue_type: SourceIssueType;
+  description?: string;
+}
+export interface LegalDataHunterContext {
+  provider: string;
+  database: string;
+}
+
+export declare function toLegalDataHunterSearchArgs(
+  request: ProviderSearchRequest,
+): LegalDataHunterSearchArgs;
+export declare function toLegalDataHunterResolveArgs(input: {
+  reference: string;
+  hintCountry?: string;
+  hintType?: string;
+}): LegalDataHunterResolveArgs;
+export declare function toLegalDataHunterIssueArgs(input: {
+  source: string;
+  issueType: SourceIssueType;
+  description?: string;
+}): LegalDataHunterIssueArgs;
+
+export declare function normalizeLegalDataHunterHit(
+  raw: unknown,
+  context: LegalDataHunterContext,
+): NormalizedSearchHit;
+export declare function normalizeLegalDataHunterSearch(
+  raw: unknown,
+  context: LegalDataHunterContext,
+): NormalizedSearchResult;
+export declare function normalizeLegalDataHunterDocument(
+  raw: unknown,
+  context: LegalDataHunterContext,
+): NormalizedLegalDocument;
+export declare function normalizeLegalDataHunterCountries(raw: unknown): DiscoveryOption[];
+export declare function normalizeLegalDataHunterSources(raw: unknown): DiscoveryOption[];
+export declare function normalizeLegalDataHunterFilters(
+  raw: unknown,
+  source: string,
+): ProviderFilterSet;
+export declare function normalizeLegalDataHunterResolvedReference(
+  raw: unknown,
+  context: LegalDataHunterContext & { reference: string },
+): ResolvedLegalReference;
+
+export interface LegalDataHunterAdapterOptions {
+  /** Sends one operation to the host's server, which holds the API key. No HTTP here. */
+  call(
+    operation: LegalDataHunterOperation,
+    payload: Record<string, unknown>,
+  ): Promise<unknown>;
+  manifest?: QueryBuilderManifestV3;
+}
+/** Maps the generic shapes onto Legal Data Hunter's, using the host's transport. */
+export declare function createLegalDataHunterAdapter(
+  options: LegalDataHunterAdapterOptions,
+): LegalSearchAdapter;
+
+/** Every field an LDH hit can carry, for result views. Shown when present. */
+export declare const LEGAL_DATA_HUNTER_RESULT_FIELDS: ResultFieldDescriptor[];
+
+/** Where the Legal Data Hunter REST API is served. Paths start at `/v1`. */
+export declare const LEGAL_DATA_HUNTER_BASE_URL: "https://legaldatahunter.com";
+/** One REST call, ready for the host's server to send. */
+export interface LegalDataHunterRestRequest {
+  method: "GET" | "POST";
+  /** The path from the base URL, query string included. */
+  path: string;
+  /** The JSON body, for `POST`. */
+  body?: Record<string, unknown>;
+}
+/**
+ * Turns an adapter operation into its REST call. The host's server adds the
+ * base URL and `Authorization: Bearer <LDH_KEY>`, then sends it.
+ */
+export declare function toLegalDataHunterRestRequest(
+  operation: LegalDataHunterOperation,
+  payload: Record<string, unknown>,
+): LegalDataHunterRestRequest;
+
 
 
 export declare const VueLegalQueryBuilderPlugin: Plugin;
